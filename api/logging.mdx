@@ -1,0 +1,139 @@
+---
+title: "Logging"
+description: "Send log messages from the engine to the editor console"
+---
+
+Zeytin provides four log functions that print to `stdout` **and** forward the message over ZeroMQ to the editor's **Console** panel. Include the header in any variant implementation that needs logging:
+
+```cpp
+#include "remote_logger/remote_logger.h"
+```
+
+All four functions are exported from the `zeytin.logger` module and available globally — no namespace prefix needed.
+
+---
+
+## Log functions
+
+<ParamField path="log_trace(fmt, args...)" type="void">
+  Emits a **TRACE**-level message. Use this for verbose, high-frequency output such as per-frame diagnostics that you only want visible during active debugging.
+
+  ```cpp
+  log_trace("Frame {}: position ({}, {})", frame_count, pos.x, pos.y);
+  ```
+</ParamField>
+
+<ParamField path="log_info(fmt, args...)" type="void">
+  Emits an **INFO**-level message. Use this for normal lifecycle events — initialization, state transitions, or one-time setup.
+
+  ```cpp
+  log_info("Cube {} initialized at ({}, {})", entity_id, pos.x, pos.y);
+  ```
+</ParamField>
+
+<ParamField path="log_warning(fmt, args...)" type="void">
+  Emits a **WARNING**-level message. Use this for unexpected but recoverable conditions.
+
+  ```cpp
+  log_warning("Entity {} health is negative: {}", entity_id, health.value);
+  ```
+</ParamField>
+
+<ParamField path="log_error(fmt, args...)" type="void">
+  Emits an **ERROR**-level message. Use this for conditions that indicate a logic failure or unrecoverable state.
+
+  ```cpp
+  log_error("Failed to load texture at path: {}", path_to_sprite);
+  ```
+</ParamField>
+
+---
+
+## Format syntax
+
+All four functions use `std::format` (C++20) for message formatting. The format string uses `{}` placeholders, which are replaced in order by the arguments you pass:
+
+```cpp
+log_info("Player {} scored {} points", player_name, score);
+// → "Player Alice scored 42 points"
+
+log_trace("dt={:.4f} pos=({:.2f}, {:.2f})", dt, pos.x, pos.y);
+// → "dt=0.0167 pos=(128.00, 256.00)"
+```
+
+Format specifiers follow the `std::format` specification — the same syntax used by Python's f-strings and `{fmt}`. Common specifiers:
+
+| Specifier | Effect |
+|---|---|
+| `{}` | Default formatting |
+| `{:.2f}` | Floating point with 2 decimal places |
+| `{:d}` | Integer (decimal) |
+| `{:05d}` | Integer, zero-padded to 5 digits |
+| `{:>10}` | Right-aligned, width 10 |
+
+---
+
+## Log levels
+
+```cpp
+enum class LogLevel {
+    TRACE,
+    INFO,
+    WARNING,
+    ERROR
+};
+```
+
+The `LogLevel` enum is used internally by `RemoteLogger`. You do not interact with it directly — call the four helper functions instead.
+
+---
+
+## Where messages appear
+
+Each log call:
+
+1. Formats the message string using `std::format`.
+2. Prints it to `stdout` immediately.
+3. Sends it over a ZeroMQ socket to the editor's **Console** panel (visible at the bottom of the editor window).
+
+The editor receives messages from the running engine in real time, so you can watch logs update live as your game plays.
+
+<Note>
+  Log messages only appear in the editor's Console panel when the engine is running and connected over ZeroMQ. If you run the engine in `STANDALONE` mode without the editor, messages still print to `stdout`.
+</Note>
+
+---
+
+## Examples
+
+```cpp
+#include "remote_logger/remote_logger.h"
+
+void Cube::on_init() {
+    auto& pos = Query::get<Position>(this);
+    log_info("Cube {} initialized at ({}, {})", entity_id, pos.x, pos.y);
+}
+
+void Cube::on_play_update() {
+    auto& health = Query::get<Health>(this);
+
+    if (health.value < 0) {
+        log_warning("Entity {} health is negative: {}", entity_id, health.value);
+    }
+
+    if (health.value <= 0) {
+        log_error("Entity {} has died — removing", entity_id);
+        is_dead = true;
+    }
+}
+
+void Cube::on_update() {
+    // High-frequency trace — only useful while actively debugging
+    auto& pos = Query::get<Position>(this);
+    log_trace("Cube {} pos=({:.2f}, {:.2f})", entity_id, pos.x, pos.y);
+}
+```
+
+<Tip>
+  Use `log_trace` for any message that fires every frame. It keeps your **INFO** stream clean and lets you toggle verbose output by filtering log levels in the console, avoiding noise during normal play sessions.
+</Tip>

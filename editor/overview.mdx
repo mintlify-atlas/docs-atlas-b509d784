@@ -1,0 +1,55 @@
+---
+title: "Editor overview"
+description: "A tour of the Zeytin editor interface"
+---
+
+The Zeytin editor (`ZeytinEditor`) is a standalone [Dear ImGui](https://github.com/ocornut/imgui) application that communicates with the engine (`Zeytin`) over [ZeroMQ](https://zeromq.org/). The two processes never share memory — instead they exchange JSON messages: the editor sends scene data, property changes, and play-mode commands; the engine sends back log output and entity state. The engine render is delivered to the editor via POSIX shared memory, which the editor uploads to a Raylib texture and displays in the Engine View panel.
+
+Game code is compiled into the engine binary, not into the editor. This means the editor never executes your game logic directly — it only authors data (entities and their variant property values) and communicates them to the running engine.
+
+## Interface layout
+
+The editor is divided into four panels:
+
+| Panel | Location | Purpose |
+|-------|----------|---------|
+| Hierarchy | Left | All design-time entities in the current scene, with their attached variants |
+| Console | Bottom | Real-time log messages from both the editor and the running engine |
+| Asset Browser | Right | Navigate and manage the `shared_resources/` project directory |
+| Engine View | Center | Live render output from the engine, displayed every frame |
+
+## Starting the editor
+
+From the `editor/` directory, run:
+
+```bash
+./bin/Debug/ZeytinEditor
+```
+
+The editor opens with the last saved scene loaded in the hierarchy. You can design and edit the scene without starting the engine.
+
+## Starting the engine from the editor
+
+Click **Start Engine** in the toolbar. The editor runs `build_and_run.sh` inside the `engine/` directory on a background thread. While the build is running, the toolbar shows a **Building...** indicator with a progress bar. If the build fails, a modal dialog opens showing the full compiler output so you can diagnose the error.
+
+Once the engine process is running, the toolbar changes to **Engine Running** (shown in green) and the **Play** and **Pause** controls become active.
+
+<Note>
+  The editor and engine are separate processes. Your game code lives in `engine/include/game/` and `engine/source/game/` and is compiled into the engine binary — not the editor. Every time you click **Start Engine**, the engine is rebuilt from source before launching.
+</Note>
+
+You can click **Kill Engine** at any time to terminate the engine process. Clicking **Start Engine** again will rebuild and relaunch it.
+
+## Panel reference
+
+<CardGroup cols={2}>
+  <Card title="Hierarchy panel" icon="list-tree" href="/editor/hierarchy">
+    Create entities, attach and remove variants, and learn how auto-dependency detection works.
+  </Card>
+  <Card title="Asset browser" icon="folder-open" href="/editor/asset-browser">
+    Navigate `shared_resources/`, browse textures, entity files, and scene files.
+  </Card>
+  <Card title="Play mode" icon="play" href="/editor/play-mode">
+    Enter and exit play mode, pause mid-run, and edit properties live while the game is running.
+  </Card>
+</CardGroup>

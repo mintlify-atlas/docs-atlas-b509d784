@@ -1,0 +1,112 @@
+---
+title: "Play mode"
+description: "Test your game in play mode with live property editing"
+---
+
+Play mode runs the engine's play loop. When active, the engine calls `on_play_start` and `on_play_late_start` once on every variant that overrides them, then calls `on_play_update` and `on_play_late_update` every frame for as long as play mode is active. The Engine View panel in the center of the editor shows the live game output.
+
+<Warning>
+  Property changes made while play mode is active are **not saved** to disk. Exiting play mode restores all property values to the state they had before you entered it. If you want to keep a change you made during play, exit play mode first and then re-apply the change in the inspector.
+</Warning>
+
+## Entering play mode
+
+<Steps>
+  <Step title="Start the engine">
+    Click **Start Engine** in the toolbar. The editor builds the engine binary and launches it. The toolbar shows **Building...** during compilation. Once the engine is ready, the toolbar shows **Engine Running** in green and the **Play** and **Pause** controls become active.
+  </Step>
+  <Step title="Enter play mode">
+    Click **Play**. The button highlights green and the status label reads **PLAYING** in green. The engine receives an `enter_play_mode` message over ZeroMQ, calls `on_play_start` and `on_play_late_start` on all variants, then begins the `on_play_update` loop.
+  </Step>
+  <Step title="Exit play mode">
+    Click **Play** again to toggle it off. The engine receives an `exit_play_mode` message, stops calling play-mode lifecycle methods, and reverts all property values to their pre-play state. The engine keeps running in edit mode — you do not need to restart it.
+  </Step>
+</Steps>
+
+## Pausing
+
+Click **Pause** while in play mode to freeze the play loop. The status label changes to **PAUSED** (shown in orange) and the button highlights orange. The editor sends a `pause_play_mode` message over ZeroMQ.
+
+Click **Pause** again to resume. The editor sends an `unpause_play_mode` message and the engine resumes `on_play_update` from the next frame.
+
+## Live property editing
+
+You can modify any `PROPERTY()` field in the inspector at any time, including while play mode is active. The editor sends each change over ZeroMQ and the engine applies it immediately on the next frame — no rebuild or restart is needed.
+
+For example, with a `Speed` variant like this:
+
+```cpp
+class Speed : public VariantBase {
+    VARIANT(Speed);
+public:
+    float value = 100.0f; PROPERTY()
+};
+```
+
+You can drag the `value` slider in the inspector while the entity is moving and the movement speed updates instantly on the next frame.
+
+## Engine state flags
+
+Inside your variant code you can query the current engine state using the `Zeytin` singleton:
+
+```cpp
+#include "core/zeytin.h"
+
+void Cube::on_update() {
+    if (Zeytin::get().is_play_mode()) {
+        // running in play mode
+    }
+
+    if (Zeytin::get().is_paused_play_mode()) {
+        // play mode is active but paused
+    }
+
+    if (Zeytin::get().is_scene_ready()) {
+        // scene has finished loading
+    }
+}
+```
+
+| Method | Returns `true` when |
+|--------|-------------------|
+| `is_play_mode()` | Play mode is active and not paused |
+| `is_paused_play_mode()` | Play mode is active and currently paused |
+| `is_scene_ready()` | The scene has finished deserialising and all entities are constructed |
+
+## Variant lifecycle reference
+
+The full set of lifecycle methods and when each runs:
+
+| Method | When it runs |
+|--------|-------------|
+| `on_init` | Once, when the entity is constructed at engine start |
+| `on_post_init` | Once, immediately after `on_init` |
+| `on_update` | Every frame, in both edit mode and play mode |
+| `on_play_start` | Once, when play mode is entered |
+| `on_play_late_start` | Once, after `on_play_start` |
+| `on_play_update` | Every frame, only while play mode is active |
+| `on_play_late_update` | Every frame after `on_play_update`, only while play mode is active |
+
+Override only the methods your variant needs. Methods that are not overridden have no runtime cost.
+
+<Tip>
+  Use `on_update` for logic that must run regardless of play state — such as rendering, drawing debug gizmos, or responding to inspector property changes. Use `on_play_update` for gameplay logic that should only run when the game is actually playing, such as input handling, physics, or AI.
+</Tip>
+
+```cpp
+class Cube : public VariantBase {
+    VARIANT(Cube);
+public:
+    float width = 50.0f; PROPERTY()
+    float height = 50.0f; PROPERTY()
+    Color color = RED; PROPERTY()
+
+    void on_init() override;         // setup, runs once at engine start
+    void on_update() override;       // draw the cube every frame
+    void on_play_update() override;  // handle keyboard input only during play
+};
+```
+
+## Killing the engine
+
+Click **Kill Engine** to terminate the engine process. If play mode is active it exits automatically. Click **Start Engine** again to rebuild and relaunch.

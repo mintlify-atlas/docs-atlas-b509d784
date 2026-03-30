@@ -1,0 +1,133 @@
+---
+title: "Entities"
+description: "Create and manage entities at design time and runtime"
+---
+
+An entity in Zeytin is a unique identifier — a `uint64_t` value called `EntityID` — that owns a collection of variants. Entities have no behaviour of their own; all logic lives in the variants attached to them.
+
+You can create entities in two ways:
+
+<CardGroup cols={2}>
+  <Card title="Design-time" icon="pencil">
+    Created in the editor **Hierarchy** panel and serialized to scene files. The engine loads and constructs them automatically on startup.
+  </Card>
+  <Card title="Runtime" icon="play">
+    Created programmatically in game code using `Query::create_entity()`. These exist only for the duration of the running session.
+  </Card>
+</CardGroup>
+
+## Design-time entities
+
+Design-time entities are the ones you set up in the editor before running the engine. To create one:
+
+1. In the **Hierarchy** panel, click **+ Create New Entity** and enter a name.
+2. Right-click the entity in the hierarchy and select **Add Variant**.
+3. Set property values in the inspector panel.
+
+When you save the scene, the editor serializes the entity — its name, all attached variants, and every `PROPERTY()` field value — to a scene file under `shared_resources/`. The engine reads this file on startup and constructs each entity and its variants automatically, then calls `on_init()` on each variant after properties have been deserialized.
+
+## Runtime entities
+
+To create an entity while the engine is running, use `Query::create_entity()`. This returns a fresh `EntityID` that you can then populate with variants.
+
+```cpp
+#include "core/query.h"
+#include "game/position.h"
+#include "game/sprite.h"
+
+// Create a blank entity
+auto entity_id = Query::create_entity();
+
+// Add a Position variant with constructor arguments
+Query::add<Position>(entity_id, 100.0f, 200.0f);
+
+// Add a Sprite variant, then configure it
+auto& sprite = Query::add<Sprite>(entity_id)->get();
+sprite.path_to_sprite = "path/to/image.png";
+```
+
+`Query::add<T>` returns `std::optional<std::reference_wrapper<T>>`. It sets `entity_id` on the variant automatically, then calls `on_init()` before returning.
+
+<Note>
+  The `entity_id` field on a variant is set by the engine when you call `Query::add<T>`. You never need to assign it yourself. From within a variant's methods, `this->entity_id` always refers to the owning entity.
+</Note>
+
+## Checking and reading variants
+
+Use these Query functions to inspect an entity's variants without modifying them:
+
+```cpp
+// Check whether an entity has a specific variant
+if (Query::has<Position>(entity_id)) {
+    auto& pos = Query::get<Position>(entity_id);
+    pos.x += 10.0f;
+}
+
+// Check for multiple variants at once
+if (Query::has<Position, Sprite>(entity_id)) {
+    // entity has both
+}
+
+// Safe read — returns std::nullopt if the variant is absent
+if (auto health_opt = Query::try_get<Health>(entity_id)) {
+    Health& health = health_opt->get();
+    health.value -= damage;
+}
+
+// Confirm the entity itself still exists
+if (Query::entity_exists(entity_id)) {
+    // safe to use entity_id
+}
+```
+
+## Removing entities and variants
+
+To remove a single variant from an entity without destroying the entity:
+
+```cpp
+Query::remove_variant_from<Speed>(entity_id);
+```
+
+To destroy an entity and all its variants entirely:
+
+```cpp
+Query::remove_entity(entity_id);
+```
+
+Both operations take effect immediately.
+
+## The `is_dead` flag
+
+Every variant inherits an `is_dead` boolean from `Component`. When you set `is_dead = true` on a variant, the engine cleans it up at the start of the next frame. This is a deferred alternative to calling `remove_variant_from` directly and is useful when you want to mark a variant for removal from inside its own update method without invalidating iterators mid-frame.
+
+```cpp
+void Enemy::on_play_update() {
+    if (health <= 0) {
+        is_dead = true;  // cleaned up at the start of next frame
+    }
+}
+```
+
+<Warning>
+  Do not access a variant after setting `is_dead = true`. The engine may free it at any point in the subsequent frame.
+</Warning>
+
+## Entity lifecycle summary
+
+<Steps>
+  <Step title="Construction">
+    The engine constructs each variant via its constructor (for runtime entities) or the serializer (for design-time entities).
+  </Step>
+  <Step title="Property deserialization">
+    For design-time entities, the serializer sets every `PROPERTY()` field from the scene file before calling any lifecycle methods.
+  </Step>
+  <Step title="on_init()">
+    Called on each variant once, after properties are set. This is the correct place to read property values and perform initialization.
+  </Step>
+  <Step title="Frame loop">
+    Each frame the engine calls `on_early_update()`, then `on_update()`, then (in play mode) `on_play_update()`, then `on_play_late_update()`.
+  </Step>
+  <Step title="Removal">
+    Variants with `is_dead = true` are removed at the start of the next frame. Calling `Query::remove_entity` or `Query::remove_variant_from` removes immediately.
+  </Step>
+</Steps>

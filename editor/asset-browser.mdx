@@ -1,0 +1,83 @@
+---
+title: "Asset browser"
+description: "Navigate and manage project files in the Asset Browser"
+---
+
+The asset browser occupies the right side of the editor. It lets you navigate the `shared_resources/` directory — the single location where all project data lives. Both the editor and the engine read from this directory.
+
+## Directory structure
+
+Zeytin organises project data under `shared_resources/`:
+
+```plaintext
+shared_resources/
+├── assets/
+└── levels/
+    ├── Level1/
+    ├── Level2/
+    └── TestLevel/
+```
+
+The `assets/` folder is where you place game assets such as textures and audio. The `levels/` folder contains one subdirectory per level, each holding the `.entity` files for that level's design-time entities. The asset browser is rooted at `shared_resources/`, which it displays as **Resources** in the directory tree.
+
+## Navigating the browser
+
+The browser splits into two panes side by side:
+
+- **Left pane** — a tree view of all subdirectories. The root **Resources** node is open by default. Click any folder to select it and display its contents in the right pane.
+- **Right pane** — the files inside the currently selected directory. Click **Back** to navigate to the parent directory.
+
+## File types
+
+The browser recognises several file types and labels them with coloured icons:
+
+| Type | Extension(s) | Label |
+|------|-------------|-------|
+| Image | `.png`, `.jpg`, `.jpeg`, `.bmp` | Thumbnail (preview mode) or image icon |
+| Script | `.cpp`, `.h`, `.lua` | `[SCR]` |
+| Entity | `.entity` | `[ENT]` |
+| Variant | `.component` | `[VAR]` |
+| Scene | `.scene` | `[SCN]` |
+
+## Preview mode
+
+The **Show Previews** checkbox in the browser toolbar toggles between a thumbnail grid and a compact list. In preview mode, image files are loaded and scaled to fit an 80 × 80 cell. Non-image files display a coloured icon label. Disable preview mode when browsing directories with many files and no images to avoid unnecessary texture loads.
+
+## Referencing assets in variant code
+
+When a variant property refers to an asset file — for example, a texture path in a `Sprite` variant — use a path relative to `shared_resources/`. The engine's `ResourceManager` resolves all asset paths from that root:
+
+```cpp
+class Sprite : public VariantBase {
+    VARIANT(Sprite);
+public:
+    std::string path_to_sprite; PROPERTY()  SET_CALLBACK(handle_new_path)
+
+    void on_init() override {
+        load_sprite_if_needed();
+    }
+
+    void handle_new_path() {
+        load_sprite_if_needed();
+    }
+
+private:
+    void load_sprite_if_needed() {
+        if (!path_to_sprite.empty()) {
+            texture = LoadTexture(path_to_sprite.c_str());
+        }
+    }
+
+    Texture texture;
+};
+```
+
+In the editor inspector, set `path_to_sprite` to a value such as `assets/textures/player.png`. You can find the correct path by browsing to the file in the asset browser — the status bar at the bottom of the panel shows the selected file's name and size.
+
+## Refreshing
+
+Click **Refresh** to rescan `shared_resources/` and rebuild the directory cache. Use this after adding or deleting files outside the editor, such as copying a new texture in from the file system.
+
+<Note>
+  Asset management in Zeytin is file-system based. The editor does not copy or import files — it reads them directly from wherever they are placed in `shared_resources/`. Organise your assets inside `shared_resources/assets/` and reference them by their relative path in variant properties.
+</Note>

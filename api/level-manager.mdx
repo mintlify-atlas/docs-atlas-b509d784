@@ -1,0 +1,133 @@
+---
+title: "LevelManager"
+description: "Load and query levels from the shared_resources/levels directory"
+---
+
+`LevelManager` provides static methods to discover and load levels from the `shared_resources/levels/` directory. It handles reading level files from disk and returning their contents as scene JSON that the engine can deserialize.
+
+<Note>
+  For runtime level transitions, prefer `Zeytin::get().request_level_load(name)` or `Zeytin::get().switch_to_level(name)`. Use `LevelManager` directly when you need to enumerate available levels or read raw scene JSON without immediately applying it.
+</Note>
+
+## Level struct
+
+Each level is represented by a `Level` value:
+
+```cpp
+struct Level {
+    std::string name;
+    std::filesystem::path path;
+
+    Level() = default;
+    Level(const std::string& name, const std::filesystem::path& path);
+
+    bool is_valid() const; // true if name is non-empty and path exists on disk
+};
+```
+
+`is_valid()` returns `true` only when the name is non-empty **and** the path exists on the filesystem. Always check `is_valid()` before passing a `Level` to a load function.
+
+<Tip>
+  Check `level.is_valid()` before using a level — if the file was deleted after the level list was built, `is_valid()` will return `false` and prevent a failed load.
+</Tip>
+
+## Static methods
+
+### `LevelManager::get_all_levels()` → `std::vector<Level>`
+
+Scans the `shared_resources/levels/` directory and returns one `Level` entry for each level found. The order of results is not guaranteed.
+
+```cpp
+auto levels = LevelManager::get_all_levels();
+```
+
+### `LevelManager::get_level(name)` → `Level`
+
+Returns the `Level` struct for a specific level by name. If no matching level exists, the returned struct will have an empty name and a non-existent path — `is_valid()` will return `false`.
+
+```cpp
+Level level = LevelManager::get_level("Level2");
+if (level.is_valid()) {
+    // safe to load
+}
+```
+
+### `LevelManager::load_level(level)` → `std::string`
+
+Loads a level from a `Level` struct and returns the scene JSON as a string. Returns an empty string if the file cannot be read.
+
+```cpp
+Level level = LevelManager::get_level("Level2");
+std::string json = LevelManager::load_level(level);
+```
+
+### `LevelManager::load_level(name)` → `std::string`
+
+Convenience overload that accepts a level name string directly. Equivalent to calling `get_level(name)` followed by `load_level(level)`. Returns an empty string if the level is not found or cannot be read.
+
+```cpp
+std::string json = LevelManager::load_level("Level2");
+if (json.empty()) {
+    // level not found or file unreadable
+}
+```
+
+### `LevelManager::load_scene_file(scene_name)` → `std::string`
+
+Loads a specific scene file by name from the scenes directory. Use this when you need to load a scene file that is separate from the main level files. Returns the raw file contents as a string, or an empty string on failure.
+
+```cpp
+std::string json = LevelManager::load_scene_file("intro_cutscene");
+```
+
+## Typical usage
+
+### Building a level selection menu
+
+```cpp
+// List all available levels
+auto levels = LevelManager::get_all_levels();
+for (const auto& level : levels) {
+    if (level.is_valid()) {
+        // display level.name in your UI
+    }
+}
+```
+
+### Transitioning to a level at runtime
+
+Use the `Zeytin` API for runtime transitions — it handles deferred loading and state resets correctly:
+
+```cpp
+// Deferred: takes effect at start of next frame
+Zeytin::get().request_level_load("Level2");
+
+// Immediate: synchronous load, takes effect right away
+Zeytin::get().switch_to_level("Level2");
+```
+
+### Manually loading scene JSON
+
+If you need the raw scene JSON without immediately applying it (for example, to inspect or transform it):
+
+```cpp
+std::string json = LevelManager::load_level("Level2");
+if (!json.empty()) {
+    // inspect, cache, or apply later
+    Zeytin::get().deserialize_scene(json);
+}
+```
+
+## Directory layout
+
+`LevelManager` looks for levels in `shared_resources/levels/`. Each level is a subdirectory:
+
+```plaintext
+shared_resources/
+└── levels/
+    ├── Level1/
+    ├── Level2/
+    └── TestLevel/
+```
+
+Each subdirectory name is the level name. Pass that name to `load_level()` or `switch_to_level()`.

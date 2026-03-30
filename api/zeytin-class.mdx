@@ -1,0 +1,170 @@
+---
+title: "Zeytin class"
+description: "The core engine singleton managing state, scene, and the main loop"
+---
+
+`Zeytin` is the central engine singleton. It owns the entity storage, drives the main loop, manages scene load/unload, and exposes the Raylib camera. Access it from anywhere with `Zeytin::get()`.
+
+<Note>
+  Most game code should use the [Query API](/api/query) rather than interacting with `Zeytin` directly. The methods on `Zeytin` are intended for engine-level operations such as switching levels, serializing scenes, and reading engine state flags.
+</Note>
+
+## State queries
+
+These methods reflect the current engine state stored in the `State` bitfield. They are all `const` and safe to call every frame.
+
+| Method | Returns | Description |
+|---|---|---|
+| `is_play_mode()` | `bool` | `true` while the engine is in play mode (gameplay logic is running). |
+| `is_paused_play_mode()` | `bool` | `true` when play mode is active but paused. |
+| `is_scene_ready()` | `bool` | `true` once a scene has been successfully loaded and deserialized. |
+| `is_started()` | `bool` | `true` after `on_play_start()` has been called on all components for the current scene. |
+| `is_late_started()` | `bool` | `true` after the late-start phase has completed. |
+| `is_synced_once()` | `bool` | `true` once the engine has completed at least one full editor sync. |
+| `should_die()` | `bool` | `true` when the engine should shut down — either because the window was closed or the editor requested termination. |
+
+### State struct
+
+The state is stored as a packed bitfield:
+
+```cpp
+struct State {
+    bool started : 1;             // on_play_start() has run
+    bool late_started : 1;        // late-start phase complete
+    bool should_die : 1;          // engine shutdown requested
+    bool scene_ready : 1;         // scene loaded and deserialized
+    bool play_mode : 1;           // gameplay is running
+    bool pause_play_mode : 1;     // play mode is paused
+    bool synced_once : 1;         // first editor sync done
+    bool reload_next_frame : 1;   // scene will reload next frame
+    bool load_level_next_frame : 1; // a level switch is pending
+};
+```
+
+## Scene management
+
+### `reload_scene()`
+
+Schedules a reload of the current scene at the start of the next frame. The current level name is preserved and the scene is re-deserialized from scratch, resetting all component state.
+
+```cpp
+Zeytin::get().reload_scene();
+```
+
+<Warning>
+  `reload_scene()` is deferred — it takes effect at the start of the next frame, not the moment you call it. Do not assume the scene has reloaded immediately after the call returns.
+</Warning>
+
+### `request_level_load(level_name)`
+
+Schedules a level switch for the next frame. The engine stores `level_name` as the pending level and sets the `load_level_next_frame` flag. On the next frame, it calls `LevelManager::load_level()`, clears the current storage, and deserializes the new scene.
+
+```cpp
+// queue a level transition — takes effect next frame
+Zeytin::get().request_level_load("Level2");
+```
+
+<Warning>
+  Like `reload_scene()`, `request_level_load()` is deferred. Gameplay logic that runs in the same frame will still operate on the old scene.
+</Warning>
+
+### `switch_to_level(level_name)` → `bool`
+
+Immediately loads a named level. Clears the current entity storage, loads the level JSON from `LevelManager`, and deserializes it. Returns `true` on success, `false` if the level could not be found or deserialized.
+
+```cpp
+if (!Zeytin::get().switch_to_level("Level2")) {
+    // handle failure — level file missing or malformed
+}
+```
+
+<Note>
+  `switch_to_level()` is synchronous and takes effect immediately, unlike `request_level_load()`. Prefer `request_level_load()` in gameplay code to avoid mid-frame state corruption.
+</Note>
+
+### `load_scene(path)` → `bool`
+
+Loads a scene directly from a filesystem path. Reads the file, then calls `deserialize_scene()` on its contents. Returns `false` if the file does not exist, cannot be opened, or contains invalid JSON.
+
+```cpp
+bool ok = Zeytin::get().load_scene("shared_resources/levels/my_level.scene");
+```
+
+### `serialize_scene()` → `std::string`
+
+Serializes the entire current scene to a JSON string. The output contains a `"type": "scene"` field and an `"entities"` array with one entry per entity.
+
+```cpp
+std::string json = Zeytin::get().serialize_scene();
+// write to disk, send over network, etc.
+```
+
+### `deserialize_scene(json)` → `bool`
+
+Loads a scene from a JSON string produced by `serialize_scene()`. Clears the current storage, resets the `started` and `late_started` flags, and deserializes all entities. Returns `false` if the JSON is empty, malformed, or contains no valid entities.
+
+```cpp
+bool ok = Zeytin::get().deserialize_scene(saved_json);
+```
+
+## Entity and component access
+
+These methods give you low-level access to the entity storage. Prefer the Query API for typical gameplay reads — these methods are intended for tooling, serialization, and engine plumbing.
+
+| Method | Returns | Description |
+|---|---|---|
+| `new_entity()` | `EntityID` | Allocates a new unique entity ID. The entity starts with no components. |
+| `remove_entity(id)` | `void` | Removes the entity and all its components from storage immediately. |
+| `remove_variant(id, rttr::type)` | `void` | Marks a specific component on an entity as dead; it is cleaned up at the next `clean_dead_variants()` call. |
+| `get_components(id)` | `ComponentList&` | Returns the mutable list of `rttr::variant` components attached to `id`. |
+| `get_storage()` | `Storage&` | Returns the entire entity storage map (`EntityID → ComponentList`). |
+
+`ComponentList` and `Storage` are type aliases defined in `zeytin.cppm`:
+
+```cpp
+using ComponentList = std::vector<rttr::variant>;
+using Storage       = std::unordered_map<EntityID, ComponentList>;
+```
+
+## Rendering
+
+### `get_camera()` → `Camera2D&`
+
+Returns a mutable reference to the engine's Raylib `Camera2D`. The camera is initialized with zero offset, zero target, no rotation, and zoom of `1.0`. The engine updates the camera offset each frame to letterbox the virtual resolution onto the actual window size.
+
+```cpp
+Camera2D& cam = Zeytin::get().get_camera();
+cam.zoom = 2.0f; // zoom in
+```
+
+### Virtual resolution constants
+
+The engine always renders to a `1920 × 1080` virtual canvas that is then scaled to fit the window:
+
+```cpp
+constexpr float VIRTUAL_WIDTH  = 1920.0f;
+constexpr float VIRTUAL_HEIGHT = 1080.0f;
+```
+
+Use these constants when you need to position UI elements or calculate screen-space coordinates independent of the actual window size.
+
+## Code examples
+
+```cpp
+// Check state before doing something play-mode-specific
+if (Zeytin::get().is_play_mode()) {
+    // run gameplay logic
+}
+
+// Switch to another level immediately
+Zeytin::get().switch_to_level("Level2");
+
+// Reload the current scene (restart) — deferred to next frame
+Zeytin::get().reload_scene();
+
+// Save the scene to a string and write it to a file
+std::string snapshot = Zeytin::get().serialize_scene();
+
+// Spawn a new blank entity
+EntityID id = Zeytin::get().new_entity();
+```

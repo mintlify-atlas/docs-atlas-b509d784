@@ -1,0 +1,124 @@
+{
+  "projectType": "framework",
+  "projectName": "Zeytin",
+  "projectDescription": "A lightweight C++ game engine with an integrated Dear ImGui editor, a component-variant system, runtime reflection, and a Query API for building 2D games.",
+  "theme": "aspen",
+  "primaryColor": "#28a7d9",
+  "lightColor": "#1b895b",
+  "darkColor": "#f1c665",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "installation",
+              "quickstart"
+            ]
+          },
+          {
+            "group": "The Editor",
+            "pages": [
+              "editor/overview",
+              "editor/hierarchy",
+              "editor/asset-browser",
+              "editor/play-mode"
+            ]
+          },
+          {
+            "group": "Building Games",
+            "pages": [
+              "guides/variants",
+              "guides/entities",
+              "guides/levels",
+              "guides/assets"
+            ]
+          },
+          {
+            "group": "Advanced",
+            "pages": [
+              "advanced/profiling",
+              "advanced/testing",
+              "advanced/preparser"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "Core API",
+            "pages": [
+              "api/query",
+              "api/component-lifecycle",
+              "api/macros",
+              "api/logging"
+            ]
+          },
+          {
+            "group": "Engine Internals",
+            "pages": [
+              "api/zeytin-class",
+              "api/level-manager",
+              "api/resource-manager"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Lightweight 2D game engine built on Raylib",
+    "Integrated Dear ImGui editor with WYSIWYG workflow",
+    "Component-based design using 'Variants' with runtime reflection (RTTR)",
+    "Live runtime property editing from the editor",
+    "Query API for entity-component access (get, read, find_all, for_each, etc.)",
+    "SET_CALLBACK macro for reactive property changes",
+    "Clang-based preparser for automatic RTTR code generation",
+    "Tracy profiling integration",
+    "ImGui Test Engine for automated smoke tests",
+    "Cross-platform build system via Premake5",
+    "Editor-engine communication over ZeroMQ"
+  ],
+  "publicApiSurface": [
+    "Query::create_entity()",
+    "Query::has<T>(EntityID)",
+    "Query::get<T>(EntityID)",
+    "Query::read<T>(EntityID)",
+    "Query::try_get<T>(EntityID)",
+    "Query::find_first<T>()",
+    "Query::try_find_first<T>()",
+    "Query::find_all<T>()",
+    "Query::find_all_with<T, U...>()",
+    "Query::find_where<T>(predicate)",
+    "Query::for_each<T>(action)",
+    "Query::count<T>()",
+    "Query::add<T>(EntityID, args...)",
+    "Query::remove_variant_from<T>(EntityID)",
+    "Query::remove_entity(EntityID)",
+    "Query::entity_exists(EntityID)",
+    "Component::on_init()",
+    "Component::on_play_start()",
+    "Component::on_early_update()",
+    "Component::on_update()",
+    "Component::on_play_update()",
+    "Component::on_play_late_update()",
+    "VARIANT(TypeName) macro",
+    "PROPERTY() macro",
+    "SET_CALLBACK(callback_name) macro",
+    "REQUIRES(...) macro",
+    "IGNORE_QUERIES() macro",
+    "log_trace(fmt, args...)",
+    "log_info(fmt, args...)",
+    "log_warning(fmt, args...)",
+    "log_error(fmt, args...)",
+    "LevelManager::get_all_levels()",
+    "LevelManager::load_level(name)",
+    "Zeytin::get().reload_scene()",
+    "Zeytin::get().switch_to_level(name)"
+  ]
+}

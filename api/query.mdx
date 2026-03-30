@@ -1,0 +1,391 @@
+---
+title: "Query API"
+description: "Complete reference for the Query namespace — create, find, read, and mutate entities and variants"
+---
+
+The `Query` namespace is your primary interface for working with entities and variants at runtime. Every operation — creating entities, attaching variants, reading data, iterating over types — goes through these functions. Include the header in your variant's implementation file:
+
+```cpp
+#include "core/query.h"
+```
+
+All functions live in the `Query` namespace. Template parameter `T` must always derive from `Component`.
+
+---
+
+## Entity management
+
+<ParamField path="create_entity" type="EntityID">
+  Creates a new entity and returns its `EntityID`. The entity starts with no variants attached.
+
+  ```cpp
+  EntityID player = Query::create_entity();
+  Query::add<Position>(player, 0.0f, 0.0f);
+  Query::add<Speed>(player);
+  ```
+</ParamField>
+
+<ParamField path="remove_entity" type="void">
+  Removes the entity and all variants attached to it from the engine's storage.
+
+  | Parameter | Type | Description |
+  |---|---|---|
+  | `id` | `EntityID` | The entity to remove. |
+
+  ```cpp
+  Query::remove_entity(entity_id);
+  ```
+</ParamField>
+
+<ParamField path="entity_exists" type="bool">
+  Returns `true` if the entity is still present in storage.
+
+  | Parameter | Type | Description |
+  |---|---|---|
+  | `id` | `EntityID` | The entity to check. |
+
+  ```cpp
+  if (Query::entity_exists(bullet_id)) {
+      auto& pos = Query::get<Position>(bullet_id);
+  }
+  ```
+</ParamField>
+
+---
+
+## Variant presence
+
+<ParamField path="has<T>(EntityID)" type="bool">
+  Returns `true` if the entity has a variant of type `T`.
+
+  | Parameter | Type | Description |
+  |---|---|---|
+  | `id` | `EntityID` | Entity to check. |
+
+  ```cpp
+  if (Query::has<Health>(entity_id)) {
+      Query::get<Health>(entity_id).value -= 10;
+  }
+  ```
+</ParamField>
+
+<ParamField path="has<T>(Component*)" type="bool">
+  Same as above, resolved from a component pointer. Equivalent to calling `has<T>(base->entity_id)`.
+
+  | Parameter | Type | Description |
+  |---|---|---|
+  | `base` | `Component*` | Pointer to any variant on the same entity. |
+
+  ```cpp
+  if (Query::has<Sprite>(this)) {
+      // this entity also has a Sprite
+  }
+  ```
+</ParamField>
+
+<ParamField path="has<T1, T2, ...>(EntityID)" type="bool">
+  Returns `true` only if the entity has **all** listed variant types. Short-circuits on the first missing type.
+
+  | Parameter | Type | Description |
+  |---|---|---|
+  | `id` | `EntityID` | Entity to check. |
+
+  ```cpp
+  if (Query::has<Position, Velocity, Sprite>(entity_id)) {
+      // entity has all three
+  }
+  ```
+</ParamField>
+
+---
+
+## Variant access (mutable)
+
+<ParamField path="get<T>(EntityID)" type="T&">
+  Returns a mutable reference to the variant of type `T` on the given entity.
+
+  | Parameter | Type | Description |
+  |---|---|---|
+  | `id` | `EntityID` | Entity to query. |
+
+  ```cpp
+  auto& pos = Query::get<Position>(entity_id);
+  pos.x += velocity.x * delta_time;
+  ```
+
+  <Warning>
+    Throws `std::runtime_error` if the entity does not have variant `T`. Use `try_get<T>()` when unsure whether the variant is present.
+  </Warning>
+</ParamField>
+
+<ParamField path="get<T>(Component*)" type="T&">
+  Same as above, resolved from a component pointer. Useful inside variant method bodies.
+
+  | Parameter | Type | Description |
+  |---|---|---|
+  | `base` | `Component*` | Pointer to any variant on the entity. |
+
+  ```cpp
+  void Cube::on_update() {
+      auto& pos = Query::get<Position>(this);
+      draw_rectangle(pos.x, pos.y, width, height, color);
+  }
+  ```
+</ParamField>
+
+<ParamField path="get<T1, T2, ...>(EntityID)" type="std::tuple<T1&, T2&, ...>">
+  Returns a tuple of mutable references to multiple variants in a single call.
+
+  | Parameter | Type | Description |
+  |---|---|---|
+  | `id` | `EntityID` | Entity to query. |
+
+  ```cpp
+  auto [pos, vel] = Query::get<Position, Velocity>(entity_id);
+  pos.x += vel.x * delta_time;
+  pos.y += vel.y * delta_time;
+  ```
+
+  <Warning>
+    Throws `std::runtime_error` if any of the requested variants is missing.
+  </Warning>
+</ParamField>
+
+<ParamField path="try_get<T>(EntityID)" type="std::optional<std::reference_wrapper<T>>">
+  Safe variant access. Returns `std::nullopt` if the variant is not present instead of throwing.
+
+  | Parameter | Type | Description |
+  |---|---|---|
+  | `id` | `EntityID` | Entity to query. |
+
+  ```cpp
+  if (auto health_opt = Query::try_get<Health>(entity_id)) {
+      health_opt->get().value -= damage;
+  }
+  ```
+
+  <Tip>
+    Prefer `try_get` over `get` whenever you are not certain whether the variant exists, such as when processing heterogeneous entities in a loop.
+  </Tip>
+</ParamField>
+
+---
+
+## Variant access (read-only)
+
+<ParamField path="read<T>(EntityID)" type="const T&">
+  Returns a `const` reference to the variant of type `T`. Use this to signal read-only intent and prevent accidental mutation.
+
+  | Parameter | Type | Description |
+  |---|---|---|
+  | `id` | `EntityID` | Entity to query. |
+
+  ```cpp
+  const auto& speed = Query::read<Speed>(this);
+  float movement = speed.value * delta_time;
+  ```
+
+  <Warning>
+    Throws `std::runtime_error` if the variant is not present.
+  </Warning>
+</ParamField>
+
+<ParamField path="read<T1, T2, ...>(EntityID)" type="std::tuple<const T1&, const T2&, ...>">
+  Returns a tuple of `const` references to multiple variants.
+
+  | Parameter | Type | Description |
+  |---|---|---|
+  | `id` | `EntityID` | Entity to query. |
+
+  ```cpp
+  const auto [pos, speed] = Query::read<Position, Speed>(entity_id);
+  ```
+</ParamField>
+
+---
+
+## Finding variants
+
+<ParamField path="find_first<T>()" type="T&">
+  Returns a mutable reference to the first variant of type `T` found across all entities.
+
+  ```cpp
+  auto& camera = Query::find_first<Camera>();
+  ```
+
+  <Warning>
+    Throws `std::runtime_error` if no entity with type `T` exists. Use `try_find_first<T>()` when the variant might not be present.
+  </Warning>
+</ParamField>
+
+<ParamField path="try_find_first<T>()" type="std::optional<std::reference_wrapper<T>>">
+  Safe version of `find_first`. Returns `std::nullopt` if no matching variant exists.
+
+  ```cpp
+  if (auto cam = Query::try_find_first<Camera>()) {
+      cam->get().zoom = 1.5f;
+  }
+  ```
+</ParamField>
+
+<ParamField path="find_all<T>()" type="std::vector<std::reference_wrapper<T>>">
+  Returns references to all variants of type `T` across every entity.
+
+  ```cpp
+  for (auto& enemy_ref : Query::find_all<Enemy>()) {
+      Enemy& enemy = enemy_ref.get();
+      enemy.update_ai();
+  }
+  ```
+</ParamField>
+
+<ParamField path="find_all_with<T, U...>()" type="std::vector<EntityID>">
+  Returns the `EntityID` of every entity that has **all** of the specified variant types.
+
+  ```cpp
+  for (auto id : Query::find_all_with<Position, Sprite>()) {
+      auto& pos = Query::get<Position>(id);
+      auto& spr = Query::get<Sprite>(id);
+      draw_sprite(spr, pos.x, pos.y);
+  }
+  ```
+</ParamField>
+
+<ParamField path="find_where<T>(predicate)" type="std::vector<std::reference_wrapper<T>>">
+  Returns all variants of type `T` for which the predicate returns `true`.
+
+  | Parameter | Type | Description |
+  |---|---|---|
+  | `predicate` | `std::function<bool(T&)>` | Filter function applied to each variant. |
+
+  ```cpp
+  auto dead_enemies = Query::find_where<Enemy>([](Enemy& e) {
+      return e.health <= 0;
+  });
+  ```
+</ParamField>
+
+<ParamField path="count<T>()" type="size_t">
+  Returns the number of entities that have a variant of type `T`.
+
+  ```cpp
+  size_t bullet_count = Query::count<Bullet>();
+  if (bullet_count > MAX_BULLETS) {
+      // pool or cull
+  }
+  ```
+</ParamField>
+
+---
+
+## Iteration
+
+<ParamField path="for_each<T>(action)" type="void">
+  Calls `action` on every living variant of type `T`. Variants where `is_dead == true` are automatically skipped.
+
+  | Parameter | Type | Description |
+  |---|---|---|
+  | `action` | `std::function<void(T&)>` | Callback invoked for each variant. |
+
+  ```cpp
+  Query::for_each<Ball>([](Ball& ball) {
+      ball.apply_gravity();
+  });
+  ```
+
+  <Note>
+    `for_each` skips any variant whose `is_dead` flag is `true`. Dead variants are cleaned up at the end of the frame — you do not need to filter them yourself.
+  </Note>
+</ParamField>
+
+---
+
+## Mutation
+
+<ParamField path="add<T>(EntityID, Args...)" type="std::optional<std::reference_wrapper<T>>">
+  Constructs and attaches a variant of type `T` to the entity, forwarding `Args` to its constructor. Calls `on_init()` before returning.
+
+  Returns a reference to the newly added variant, or `std::nullopt` if the entity already has variant `T`.
+
+  | Parameter | Type | Description |
+  |---|---|---|
+  | `id` | `EntityID` | Target entity. |
+  | `args...` | `Args&&...` | Constructor arguments forwarded to `T`. |
+
+  ```cpp
+  auto entity_id = Query::create_entity();
+  Query::add<Position>(entity_id, 100.0f, 200.0f);
+
+  // add returns nullopt if T already exists
+  if (auto sprite = Query::add<Sprite>(entity_id)) {
+      sprite->get().path_to_sprite = "assets/player.png";
+  }
+  ```
+
+  <Note>
+    If the entity already has a variant of type `T`, `add` returns `std::nullopt` and does nothing. There is no silent overwrite.
+  </Note>
+</ParamField>
+
+<ParamField path="remove_variant_from<T>(EntityID)" type="void">
+  Removes variant `T` from the entity. If the entity does not have that variant, the call is a no-op.
+
+  | Parameter | Type | Description |
+  |---|---|---|
+  | `id` | `EntityID` | Entity to modify. |
+
+  ```cpp
+  Query::remove_variant_from<Shield>(entity_id);
+  ```
+</ParamField>
+
+---
+
+## Complete example
+
+```cpp
+#include "core/query.h"
+#include "remote_logger/remote_logger.h"
+
+void GameManager::on_play_start() {
+    // Create a runtime entity with multiple variants
+    auto entity_id = Query::create_entity();
+    Query::add<Position>(entity_id, 100.0f, 200.0f);
+    Query::add<Velocity>(entity_id, 0.0f, 0.0f);
+    Query::add<Health>(entity_id, 100);
+
+    // Safe single-variant access
+    if (Query::has<Position>(entity_id)) {
+        auto& pos = Query::get<Position>(entity_id);
+        pos.x += 10.0f;
+    }
+
+    // Structured binding for multiple variants in one call
+    auto [position, velocity] = Query::get<Position, Velocity>(entity_id);
+    position.x += velocity.x;
+
+    // Iterate all entities that have both Position and Sprite
+    for (auto id : Query::find_all_with<Position, Sprite>()) {
+        auto& pos = Query::get<Position>(id);
+        auto& spr = Query::get<Sprite>(id);
+        log_trace("Entity at ({}, {})", pos.x, pos.y);
+    }
+
+    // Execute a callback on all living Ball variants
+    Query::for_each<Ball>([](Ball& ball) {
+        ball.reset();
+    });
+
+    // Safe get — nullopt if variant is missing
+    if (auto health_opt = Query::try_get<Health>(entity_id)) {
+        health_opt->get().value -= 25;
+    }
+
+    // Filtered search
+    auto low_health = Query::find_where<Health>([](Health& h) {
+        return h.value < 20;
+    });
+
+    log_info("Entities with low health: {}", low_health.size());
+}
+```

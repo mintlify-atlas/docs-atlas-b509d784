@@ -1,97 +1,65 @@
 ---
-title: "Introduction"
-description: "Welcome to the new home for your documentation"
+title: "Zeytin Game Engine"
+description: "A lightweight C++ game engine with an integrated Dear ImGui editor, component-variant system, and Query API for building 2D games."
 ---
 
-## Setting up
+Zeytin is a lightweight 2D game engine written in C++, built on top of [Raylib](https://github.com/raysan5/raylib). It ships with a fully integrated editor powered by [Dear ImGui](https://github.com/ocornut/imgui), giving you a streamlined WYSIWYG workflow — from designing entities to tweaking properties live at runtime.
 
-Get your documentation site up and running in minutes.
-
-<Card
-  title="Start here"
-  icon="rocket"
-  href="/quickstart"
-  horizontal
->
-  Follow our three step quickstart guide.
-</Card>
-
-## Make it yours
-
-Design a docs site that looks great and empowers your users.
-
-<Columns cols={2}>
-  <Card
-    title="Edit locally"
-    icon="pen-to-square"
-    href="/development"
-  >
-    Edit your docs locally and preview them in real time.
+<CardGroup cols={2}>
+  <Card title="Installation" icon="download" href="/installation">
+    Set up Zeytin on Windows or Linux and build both the editor and engine from source.
   </Card>
-  <Card
-    title="Customize your site"
-    icon="palette"
-    href="/essentials/settings"
-  >
-    Customize the design and colors of your site to match your brand.
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Build your first moving entity in minutes using variants, the Query API, and the editor.
   </Card>
-    <Card
-    title="Set up navigation"
-    icon="map"
-    href="/essentials/navigation"
-  >
-    Organize your docs to help users find what they need and succeed with your product.
+  <Card title="The Editor" icon="window" href="/editor/overview">
+    Explore the editor interface — hierarchy panel, asset browser, console, and play mode.
   </Card>
-  <Card
-    title="API documentation"
-    icon="terminal"
-    href="/api-reference/introduction"
-  >
-    Auto-generate API documentation from OpenAPI specifications.
+  <Card title="Query API" icon="code" href="/api/query">
+    Full reference for `Query::get`, `find_all`, `for_each`, `add`, and every other Query function.
   </Card>
-</Columns>
+</CardGroup>
 
-## Create beautiful pages
+## What is Zeytin?
 
-Everything you need to create world-class documentation.
+Zeytin separates the **engine** (your game logic and rendering) and the **editor** (a Dear ImGui desktop app) into two distinct executables that communicate over ZeroMQ. Your game code compiles directly into the engine — there is no scripting layer.
 
-<Columns cols={2}>
-  <Card
-    title="Write with MDX"
-    icon="pen-fancy"
-    href="/essentials/markdown"
-  >
-    Use MDX to style your docs pages.
-  </Card>
-  <Card
-    title="Code samples"
-    icon="code"
-    href="/essentials/code"
-  >
-    Add sample code to demonstrate how to use your product.
-  </Card>
-  <Card
-    title="Images"
-    icon="image"
-    href="/essentials/images"
-  >
-    Display images and other media.
-  </Card>
-  <Card
-    title="Reusable snippets"
-    icon="recycle"
-    href="/essentials/reusable-snippets"
-  >
-    Write once and reuse across your docs.
-  </Card>
-</Columns>
+The core concept is **variants** (components). Every game object property you expose with the `PROPERTY()` macro becomes live-editable in the editor at runtime.
 
-## Need inspiration?
+<Steps>
+  <Step title="Clone and build">
+    Clone the repository, then build the editor and engine using Premake5 and `make`.
+  </Step>
+  <Step title="Create variants">
+    Define C++ classes that extend `Component` and register properties with `VARIANT()` and `PROPERTY()` macros.
+  </Step>
+  <Step title="Compose entities in the editor">
+    Use the Hierarchy panel to create entities and add your variants. The editor auto-detects dependencies via the Query API.
+  </Step>
+  <Step title="Play and iterate">
+    Click **Start Engine** to build and run. Tweak property values live — no recompile needed for data changes.
+  </Step>
+</Steps>
 
-<Card
-  title="See complete examples"
-  icon="stars"
-  href="https://mintlify.com/customers"
->
-  Browse our showcase of exceptional documentation sites.
-</Card>
+## Key features
+
+<CardGroup cols={2}>
+  <Card title="Component-based design" icon="puzzle-piece" href="/guides/variants">
+    Variants (components) drive all game logic. Inherit from `Component`, expose fields with `PROPERTY()`, and wire behavior through lifecycle methods.
+  </Card>
+  <Card title="Live property editing" icon="sliders" href="/editor/play-mode">
+    Modify entity properties while the engine is running. Changes reflect instantly — no restart, no re-export.
+  </Card>
+  <Card title="Query API" icon="magnifying-glass" href="/api/query">
+    Type-safe, template-based API to create, find, read, and mutate entities and variants at runtime.
+  </Card>
+  <Card title="Preparser and reflection" icon="gear" href="/advanced/preparser">
+    A Clang-based preparser automatically generates RTTR registration code from your variant headers.
+  </Card>
+  <Card title="Tracy profiling" icon="chart-line" href="/advanced/profiling">
+    Instrument your game loops with `ZPROFILE_ZONE()` macros and visualize performance in Tracy.
+  </Card>
+  <Card title="Automated testing" icon="flask" href="/advanced/testing">
+    Write ImGui Test Engine smoke tests to validate editor workflows and regression-test your game logic.
+  </Card>
+</CardGroup>

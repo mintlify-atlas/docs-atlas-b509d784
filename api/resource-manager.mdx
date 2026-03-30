@@ -1,0 +1,107 @@
+---
+title: "ResourceManager"
+description: "Resolve file paths for assets, entities, and components"
+---
+
+`ResourceManager` is a singleton that resolves absolute paths to subdirectories under `shared_resources/`. Use it whenever you need to load an asset, entity definition, or component file — it ensures your game works correctly regardless of the working directory it is launched from.
+
+Access it with `ResourceManager::get()`.
+
+<Tip>
+  Always use `ResourceManager` instead of constructing paths manually. Hardcoded paths break when the executable is launched from a different working directory or when the project is moved.
+</Tip>
+
+## Methods
+
+### `get_resources_path()` → `std::filesystem::path`
+
+Returns the absolute path to the `shared_resources/` root directory.
+
+```cpp
+auto root = ResourceManager::get().get_resources_path();
+// e.g. /home/user/my_game/shared_resources
+```
+
+### `get_entities_path()` → `std::filesystem::path`
+
+Returns the absolute path to `shared_resources/entities/`, where serialized entity files are stored.
+
+```cpp
+auto entities_dir = ResourceManager::get().get_entities_path();
+```
+
+### `get_components_path()` → `std::filesystem::path`
+
+Returns the absolute path to `shared_resources/components/`, where serialized component files are stored.
+
+```cpp
+auto components_dir = ResourceManager::get().get_components_path();
+```
+
+### `get_asset_path(relative_path)` → `std::filesystem::path`
+
+Resolves a relative path to an absolute path under `shared_resources/`. Pass a path relative to `shared_resources/` — for example `"sprites/player.png"` rather than an absolute path or a path starting with `shared_resources/`.
+
+```cpp
+auto texture_path = ResourceManager::get().get_asset_path("sprites/player.png");
+// e.g. /home/user/my_game/shared_resources/sprites/player.png
+```
+
+<Note>
+  Pass paths relative to `shared_resources/` — for example `"sprites/player.png"`, not `"/absolute/path/sprites/player.png"` or `"shared_resources/sprites/player.png"`.
+</Note>
+
+### `get_resource_subdir(subdir)` → `std::filesystem::path`
+
+Resolves any arbitrary subdirectory under `shared_resources/`. Useful when you have a custom asset category that does not have a dedicated accessor.
+
+```cpp
+auto sounds_dir = ResourceManager::get().get_resource_subdir("sounds");
+```
+
+### `get_component_path(name)` → `std::filesystem::path`
+
+Returns the absolute path to a named `.component` file in `shared_resources/components/`.
+
+```cpp
+auto path = ResourceManager::get().get_component_path("Rigidbody");
+```
+
+### `get_entity_path(name)` → `std::filesystem::path`
+
+Returns the absolute path to a named entity file in `shared_resources/entities/`.
+
+```cpp
+auto path = ResourceManager::get().get_entity_path("player");
+```
+
+## Directory layout
+
+`ResourceManager` locates `shared_resources/` by searching upward from the executable's directory at startup. The expected structure is:
+
+```plaintext
+shared_resources/
+├── entities/       ← get_entities_path()
+├── components/     ← get_components_path()
+├── levels/         ← used by LevelManager
+├── sprites/        ← example asset subdirectory
+└── sounds/         ← example asset subdirectory
+```
+
+## Loading a texture in a variant
+
+A common pattern is to use `get_asset_path()` inside a variant's `load` method so the texture path stored in the property (a relative string) is resolved to an absolute path at load time:
+
+```cpp
+#include "resource_manager/resource_manager.h"
+
+void Sprite::load_sprite_if_needed() {
+    if (!path_to_sprite.empty()) {
+        auto absolute_path = ResourceManager::get().get_asset_path(path_to_sprite);
+        texture = LoadTexture(absolute_path.string().c_str());
+        m_texture_loaded = true;
+    }
+}
+```
+
+The `path_to_sprite` property stores a relative path such as `"sprites/player.png"`. `get_asset_path()` turns it into the absolute path that Raylib's `LoadTexture` requires.

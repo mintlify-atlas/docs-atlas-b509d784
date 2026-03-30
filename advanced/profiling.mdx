@@ -1,0 +1,117 @@
+---
+title: "Profiling"
+description: "Profile your game using Tracy and the ZPROFILE macros"
+---
+
+Zeytin integrates [Tracy](https://github.com/wolfpld/tracy), a real-time frame profiler, so you can measure the cost of game loops, variant lifecycle calls, and any custom code you want to instrument. All profiling instrumentation is gated behind the `ZPROFILE` preprocessor flag, so it compiles to nothing in builds where profiling is disabled.
+
+<Note>
+  Tracy support is currently **Linux only**. The `TracyClient.cpp` translation unit and the related linker flags are included only in the Linux `EDITOR_MODE` build filter inside `engine/premake5.lua`.
+</Note>
+
+## Enabling profiling
+
+Profiling is disabled by default. To turn it on, define the `ZPROFILE` macro before building the engine.
+
+### Option 1 — Edit premake5.lua
+
+Open `engine/premake5.lua` and uncomment the `PROFILE=1` define inside the Linux `EDITOR_MODE` filter, then also uncomment `TRACY_ENABLE=1` in the `EDITOR_MODE` configuration block:
+
+```lua
+filter { "system:linux", "configurations:EDITOR_MODE" }
+    -- ...
+    defines {
+        "PROFILE=1",  -- uncomment this line
+    }
+
+filter "configurations:EDITOR_MODE"
+    defines {
+        "DEBUG=1",
+        "EDITOR_MODE=1",
+        "TRACY_ENABLE=1",  -- uncomment this line
+    }
+```
+
+After editing, regenerate the build files and rebuild:
+
+```bash
+cd engine
+premake5 gmake
+cd build
+make config=EDITOR_MODE
+```
+
+### Option 2 — Pass the flag manually
+
+If you manage compilation outside Premake, define both macros on the compiler command line:
+
+```bash
+-DZPROFILE -DTRACY_ENABLE
+```
+
+## The ZPROFILE macros
+
+All macros are defined in `engine/include/core/profiling.h`. When `ZPROFILE` is defined, each macro maps to the corresponding Tracy call. When `ZPROFILE` is **not** defined, every macro expands to nothing — there is zero runtime overhead.
+
+| Macro | Tracy equivalent | What it does |
+|---|---|---|
+| `ZPROFILE_ZONE()` | `ZoneScoped` | Marks the current scope as a Tracy zone |
+| `ZPROFILE_ZONE_NAMED(name)` | `ZoneScopedN(name)` | Marks the current scope as a named zone |
+| `ZPROFILE_FUNCTION()` | `ZoneScoped` | Alias for `ZPROFILE_ZONE()` — use at function entry |
+| `ZPROFILE_TEXT(text, size)` | `ZoneText(text, size)` | Attaches a text annotation to the current zone |
+| `ZPROFILE_VALUE(value)` | `ZoneValue(value)` | Attaches a numeric value to the current zone |
+
+<Tip>
+  `ZPROFILE_FUNCTION()` and `ZPROFILE_ZONE()` are functionally identical — both expand to `ZoneScoped`. Use `ZPROFILE_FUNCTION()` at the top of a function body to make the intent clear, and `ZPROFILE_ZONE()` for narrower scopes within a function.
+</Tip>
+
+## Instrumenting your variants
+
+Place a macro at the start of any scope you want to measure. Tracy records the entry and exit time automatically when the scope ends.
+
+```cpp
+#include "core/profiling.h"
+
+void Cube::on_update() {
+    ZPROFILE_FUNCTION();
+    // ... rendering logic
+}
+
+void Cube::on_play_update() {
+    ZPROFILE_ZONE_NAMED("Cube::handle_input");
+    handle_input();
+}
+```
+
+To attach additional context to a zone — for example, the entity ID or a property value — use `ZPROFILE_TEXT` and `ZPROFILE_VALUE`:
+
+```cpp
+void Cube::on_update() {
+    ZPROFILE_FUNCTION();
+    ZPROFILE_VALUE(static_cast<int64_t>(entity_id));
+
+    auto& position = Query::get<Position>(this);
+    ZPROFILE_TEXT("drawing", 7);
+
+    draw_rectangle(
+        position.x - width / 2,
+        position.y - height / 2,
+        width,
+        height,
+        color);
+}
+```
+
+## Engine lifecycle instrumentation
+
+The core engine lifecycle methods (`on_init`, `on_update`, `on_play_update`, and so on) already contain `ZPROFILE` macros internally. You do not need to add them yourself — enabling `ZPROFILE=1` is sufficient to see per-variant lifecycle timing in Tracy's timeline.
+
+Your own `ZPROFILE` calls inside variant methods appear as child zones nested under the corresponding engine-level zone, giving you a clear call hierarchy in the Tracy profiler UI.
+
+## Connecting Tracy
+
+Once the engine binary is running with profiling enabled, open the Tracy profiler application on the same machine. Tracy connects automatically over localhost and begins streaming frame data in real time.
+
+<Tip>
+  Use Tracy's built-in frame marker and plot features to track per-frame budgets. If a particular variant's `on_update` zone consistently appears wide in the flame graph, it is the first place to investigate for optimisation opportunities.
+</Tip>

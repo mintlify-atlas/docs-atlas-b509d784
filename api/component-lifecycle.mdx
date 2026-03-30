@@ -1,0 +1,215 @@
+---
+title: "Component lifecycle"
+description: "Lifecycle methods available on all Zeytin variants"
+---
+
+Every variant you write inherits from either `Component` or `DataComponent`, both defined in `engine/source/component/component_base.cppm`. These base structs provide the virtual lifecycle methods the engine calls each frame, plus the `entity_id` and `is_dead` fields the engine uses to manage each variant's ownership and destruction.
+
+<CardGroup cols={2}>
+  <Card title="Component" icon="bolt">
+    Full lifecycle support. Override only the methods you need. Use this for variants that have update logic, rendering, or state.
+  </Card>
+  <Card title="DataComponent" icon="database">
+    Data-only. All lifecycle methods are declared `final` — the compiler prevents you from overriding them. Use this for pure data bags that other variants query.
+  </Card>
+</CardGroup>
+
+---
+
+## Base struct
+
+```cpp
+struct Component {
+    virtual ~Component() = default;
+
+    virtual void on_init() {}
+    virtual void on_play_start() {}
+    virtual void on_early_update() {}
+    virtual void on_update() {}
+    virtual void on_play_update() {}
+    virtual void on_play_late_update() {}
+
+    [[nodiscard]]
+    uint64_t get_id() const { return entity_id; }
+
+    EntityID entity_id = 0;
+    bool is_dead = false;
+    bool post_inited = false;
+};
+```
+
+`EntityID` is a `uint64_t` typedef defined in `entity.cppm`. It is set automatically when the variant is attached to an entity — you do not set it yourself.
+
+---
+
+## Lifecycle methods
+
+| Method | When it runs |
+|---|---|
+| `on_init()` | Once, immediately after construction and property deserialization. Properties are set **before** this fires, so this is the earliest safe place to read `PROPERTY()` fields. |
+| `on_play_start()` | Once, when the editor enters play mode. Use this for per-session initialization that should reset each time play starts. |
+| `on_early_update()` | Every frame, before `on_update()`. Run anything that must be settled before other variants read it — such as input collection or physics integration. |
+| `on_update()` | Every frame, in both editor mode and play mode. Use this for rendering — drawing should happen here so you can see results without entering play mode. |
+| `on_play_update()` | Every frame while in play mode only. Put gameplay logic here. |
+| `on_play_late_update()` | Every frame in play mode, after `on_play_update()`. Use this for post-processing, camera follow, or anything that depends on positions already updated this frame. |
+
+<Note>
+  Because the engine serializes and deserializes property values **after** the constructor runs but **before** `on_init()` is called, `on_init()` is the earliest point at which `PROPERTY()` fields are guaranteed to hold their scene values. Always initialize state that depends on property values in `on_init()`, not in the constructor.
+</Note>
+
+---
+
+## Frame execution order
+
+Each engine frame runs the lifecycle methods in this order:
+
+```
+Frame N:
+  1. on_early_update()      — all variants
+  2. on_update()            — all variants
+  3. on_play_update()       — all variants (play mode only)
+  4. on_play_late_update()  — all variants (play mode only)
+  5. Dead variants cleaned up (is_dead == true)
+```
+
+Dead variants are removed at the **end** of the frame. This means a variant that sets `is_dead = true` during `on_update()` still runs `on_play_update()` and `on_play_late_update()` in the same frame before being removed. If you need to suppress further work after marking a variant dead, guard with an early return.
+
+---
+
+## Fields
+
+<ParamField path="entity_id" type="EntityID">
+  The `uint64_t` identifier for the entity this variant belongs to. Set automatically when `Query::add<T>()` attaches the variant. Read-only in practice — do not reassign it.
+
+  ```cpp
+  void Ball::on_init() {
+      log_info("Ball attached to entity {}", entity_id);
+  }
+  ```
+
+  You can also call `get_id()` which returns the same value:
+
+  ```cpp
+  uint64_t id = get_id();
+  ```
+</ParamField>
+
+<ParamField path="is_dead" type="bool">
+  Set to `true` to request removal of this variant at the end of the current frame. The engine removes the variant from storage after the frame's lifecycle methods complete.
+
+  ```cpp
+  void Bullet::on_play_update() {
+      if (has_hit_target()) {
+          is_dead = true;   // removed at end of frame
+      }
+  }
+  ```
+
+  <Note>
+    `Query::for_each<T>()` automatically skips variants where `is_dead == true`, so you do not need to filter them in iteration callbacks.
+  </Note>
+</ParamField>
+
+---
+
+## DataComponent
+
+`DataComponent` seals all lifecycle methods as `final`:
+
+```cpp
+struct DataComponent : Component {
+    virtual ~DataComponent() = default;
+
+    void on_init() final {}
+    void on_play_start() final {}
+    void on_early_update() final {}
+    void on_update() final {}
+    void on_play_update() final {}
+    void on_play_late_update() final {}
+};
+```
+
+Use `DataComponent` for variants that only hold data — structs like `Position`, `Health`, or `Config` that other variants query but that never run their own per-frame logic. The `final` keyword makes intent explicit and produces a compile error if you accidentally try to override a method.
+
+---
+
+## Example
+
+A complete `Cube` variant using several lifecycle methods:
+
+`engine/include/game/cube.h`:
+
+```cpp
+#pragma once
+
+#include "variant/variant_base.h"
+#include "game/position.h"
+
+class Cube : public VariantBase {
+    VARIANT(Cube);
+
+public:
+    float width  = 50.0f; PROPERTY()
+    float height = 50.0f; PROPERTY()
+    Color color  = RED;   PROPERTY()
+
+    void on_init() override;
+    void on_update() override;
+    void on_play_update() override;
+    void on_play_late_update() override;
+
+private:
+    void handle_input();
+    float m_elapsed = 0.0f;
+};
+```
+
+`engine/source/game/cube.cpp`:
+
+```cpp
+#include "game/cube.h"
+#include "game/speed.h"
+#include "core/query.h"
+#include "core/raylib_wrapper.h"
+#include "remote_logger/remote_logger.h"
+
+void Cube::on_init() {
+    // Properties are already set here — safe to read width, height, color
+    log_info("Cube initialized (entity {}): {}x{}", entity_id, width, height);
+}
+
+void Cube::on_update() {
+    // Runs in both editor mode and play mode — draw here
+    auto& pos = Query::get<Position>(this);
+    draw_rectangle(
+        pos.x - width / 2,
+        pos.y - height / 2,
+        width,
+        height,
+        color);
+}
+
+void Cube::on_play_update() {
+    // Gameplay logic — runs only in play mode
+    handle_input();
+    m_elapsed += get_frame_time();
+}
+
+void Cube::on_play_late_update() {
+    // Runs after on_play_update — useful for reactions to this frame's state
+    if (m_elapsed > 30.0f) {
+        is_dead = true;   // remove this variant at end of frame
+    }
+}
+
+void Cube::handle_input() {
+    auto& pos         = Query::get<Position>(this);
+    const auto& speed = Query::read<Speed>(this);
+    float dt          = get_frame_time();
+
+    if (is_key_down(KEY_LEFT))  pos.x -= speed.value * dt;
+    if (is_key_down(KEY_RIGHT)) pos.x += speed.value * dt;
+    if (is_key_down(KEY_UP))    pos.y -= speed.value * dt;
+    if (is_key_down(KEY_DOWN))  pos.y += speed.value * dt;
+}
+```

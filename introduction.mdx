@@ -1,0 +1,113 @@
+---
+title: "Introduction"
+description: "What Zeytin is and how it works"
+---
+
+Zeytin is a lightweight 2D game engine written in C++, built on top of [Raylib](https://github.com/raysan5/raylib). It ships with a fully integrated editor powered by [Dear ImGui](https://github.com/ocornut/imgui), giving you a WYSIWYG workflow — from designing entities to tweaking properties live while the engine is running.
+
+<CardGroup cols={2}>
+  <Card title="Installation" icon="download" href="/installation">
+    Set up Zeytin on Windows or Linux and build both the editor and engine from source.
+  </Card>
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Build your first moving entity in minutes using variants, the Query API, and the editor.
+  </Card>
+  <Card title="The editor" icon="window" href="/editor/overview">
+    Explore the editor interface — hierarchy panel, asset browser, console, and play mode.
+  </Card>
+  <Card title="Variants" icon="puzzle-piece" href="/guides/variants">
+    Learn how to define components (variants), expose editable properties, and wire up lifecycle methods.
+  </Card>
+  <Card title="Query API" icon="code" href="/api/query">
+    Full reference for `Query::get`, `find_all`, `for_each`, `add`, and every other Query function.
+  </Card>
+  <Card title="Profiling" icon="chart-line" href="/advanced/profiling">
+    Instrument your game loops with Tracy using `ZPROFILE_ZONE()` macros.
+  </Card>
+</CardGroup>
+
+## Engine and editor separation
+
+<Note>
+  The engine and editor are two separate executables. The **editor** (`ZeytinEditor`) is a Dear ImGui desktop application that manages your scene, entities, and properties. The **engine** (`Zeytin`) is the runtime that runs your game code. They communicate over [ZeroMQ](https://zeromq.org/), which allows the editor to send scene data, receive log messages, and reflect live property changes without sharing a process or memory space.
+
+  The engine is launched directly from the editor by clicking **Start Engine** — you do not need to start it manually during development.
+</Note>
+
+Your game code is **compiled into the engine**, not scripted into the editor. This means:
+
+- Game logic lives in `engine/include/game/` (headers) and `engine/source/game/` (implementations).
+- The engine binary is rebuilt whenever you click **Start Engine** in the editor.
+- There is no scripting layer or intermediate representation — your C++ code runs directly.
+
+## Component-variant system
+
+In Zeytin, components are called **variants**. This naming convention comes from the engine's internal use of `rttr::variant` (from the [RTTR](https://github.com/rttrorg/rttr) reflection library), and has persisted as the canonical term throughout the codebase and tooling.
+
+Every variant is a C++ class that:
+
+- Inherits from `VariantBase`
+- Registers itself with the `VARIANT(TypeName)` macro
+- Exposes editable fields using the `PROPERTY()` macro
+- Optionally overrides lifecycle methods (`on_init`, `on_update`, `on_play_update`, etc.)
+
+```cpp
+class Position : public VariantBase {
+    VARIANT(Position)
+public:
+    Position(float x, float y) : x(x), y(y) {}
+    float x = 0; PROPERTY()
+    float y = 0; PROPERTY()
+};
+```
+
+The `VARIANT()` macro generates the boilerplate needed for engine-side registration via RTTR. The `PROPERTY()` macro marks fields as editable in the editor — no additional configuration needed.
+
+## Query API
+
+The `Query` namespace gives you type-safe, template-based access to entities and their variants at runtime. You use it inside variant implementations to read or modify other variants on the same entity, iterate over all variants of a type, create runtime entities, and more.
+
+```cpp
+// Read another variant on the same entity (mutable)
+auto& position = Query::get<Position>(this);
+
+// Read-only access
+const auto& speed = Query::read<Speed>(this);
+
+// Find all entities that have both Position and Sprite
+for (auto id : Query::find_all_with<Position, Sprite>()) {
+    auto& pos = Query::get<Position>(id);
+}
+```
+
+The editor's preparser scans your variant source files and detects `Query::get` and `Query::read` calls. It uses those calls to infer dependencies — so when you add a `Cube` variant to an entity, the editor automatically adds `Position` and `Speed` as well.
+
+## ZeroMQ communication
+
+The editor and engine exchange messages over ZeroMQ at runtime. This enables:
+
+- **Scene data transfer**: When you click **Start Engine**, the editor serializes the current scene (entities and their variant property values) as JSON and sends it to the engine over a ZMQ socket.
+- **Live property updates**: Changes you make to property values in the editor are sent to the running engine instantly, without a rebuild.
+- **Remote logging**: The engine sends log messages back to the editor over a separate ZMQ channel, which appear in the editor's **Console** panel.
+
+## Architecture overview
+
+Zeytin is organized as two independent C++ applications linked by a ZeroMQ message bus. The editor is responsible for the design-time experience: you create entities, attach variants, and set property values without ever running game code. When you are ready to test, the editor serializes the scene as JSON and passes it to the engine process over ZMQ. The engine deserializes the scene, constructs every entity and variant, runs the lifecycle methods, and streams log output back to the editor's console. This strict separation means the editor is always in a known, stable state — a crash in the engine does not bring down the editor.
+
+Game code compiles directly into the engine binary under the `EDITOR_MODE` configuration. The same code, compiled under `STANDALONE`, produces a self-contained executable with the scene embedded — suitable for distribution without the editor.
+
+## Key features
+
+- Lightweight core engine with no scripting overhead
+- Editor as a separate C++ application, designed around the WYSIWYG principle
+- Live runtime property editing — tweak values while the engine runs
+- Component-based design similar to Unity, using the variant system
+- Built-in advanced runtime type information via RTTR
+- Query API for type-safe entity and variant access
+- Cross-platform build system powered by [Premake5](https://premake.github.io/)
+- Tracy profiling support (Linux, debug builds)
+- ImGui Test Engine integration for automated smoke tests
+
+## Built with Zeytin
+
+[Zone Control](https://berkaysahiin.itch.io/zone-control) is a frantic 2-player battle for zone dominance, created in 48 hours for YILDIZ Game Jam. It was built entirely with Zeytin and demonstrates the engine's component system, live property editing, and play-mode workflow in a real shipped game.

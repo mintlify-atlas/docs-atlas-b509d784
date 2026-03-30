@@ -1,0 +1,298 @@
+---
+title: "Variants"
+description: "Create and configure game components using the variant system"
+---
+
+In Zeytin, components are called **variants**. The name originates from the engine's internal dependency on `rttr::variant` (from the [RTTR](https://github.com/rttrorg/rttr) reflection library), and has persisted as the canonical term throughout the codebase and editor tooling.
+
+Every variant is a C++ class that inherits from `VariantBase`, registers itself with the `VARIANT()` macro, and optionally exposes fields and lifecycle methods.
+
+## Base classes
+
+Choose the right base class for your variant:
+
+<CardGroup cols={2}>
+  <Card title="Component" icon="bolt">
+    Full lifecycle support. Override only the methods you need. Use this for any variant that has update logic, rendering, or state.
+  </Card>
+  <Card title="DataComponent" icon="database">
+    Data-only. All lifecycle methods are sealed (`final`) — the compiler prevents you from overriding them. Use this for pure data bags that other variants query.
+  </Card>
+</CardGroup>
+
+Both are defined in `engine/source/component/component_base.cppm`.
+
+```cpp
+// Full lifecycle — override what you need
+struct Component {
+    virtual void on_init() {}
+    virtual void on_play_start() {}
+    virtual void on_early_update() {}
+    virtual void on_update() {}
+    virtual void on_play_update() {}
+    virtual void on_play_late_update() {}
+
+    EntityID entity_id = 0;
+    bool is_dead = false;
+};
+
+// Data-only — lifecycle methods are sealed
+struct DataComponent : Component {
+    void on_init() final {}
+    void on_play_start() final {}
+    void on_early_update() final {}
+    void on_update() final {}
+    void on_play_update() final {}
+    void on_play_late_update() final {}
+};
+```
+
+In practice you inherit from `VariantBase`, which is the user-facing alias that wraps `Component` and includes the necessary registration hooks.
+
+## Required macros
+
+Every variant needs two macros at minimum:
+
+- **`VARIANT(TypeName)`** — generates the boilerplate the engine needs to register and reflect the class via RTTR. Place this as the first declaration inside the class body.
+- **`PROPERTY()`** — marks a field as editable in the editor, both at design time and during play mode. Place it immediately after a field declaration on the same line.
+
+<Tip>
+  `PROPERTY()` expands to nothing at compile time — it exists solely for the Zeytin preparser, which scans your source files before compilation to build the editor's property panel. This means adding or removing `PROPERTY()` has zero runtime cost.
+</Tip>
+
+## Lifecycle methods
+
+Override any of these virtual methods on a `Component`-derived variant:
+
+| Method | When it runs |
+|---|---|
+| `on_init()` | Once, immediately after construction and property deserialization. Prefer this over the constructor for initialization that depends on property values. |
+| `on_play_start()` | Once, when the editor enters play mode. |
+| `on_early_update()` | Every frame, before `on_update()`. |
+| `on_update()` | Every frame, in both design mode and play mode. Use this for rendering. |
+| `on_play_update()` | Every frame, only while in play mode. Use this for gameplay logic. |
+| `on_play_late_update()` | Every frame in play mode, after `on_play_update()`. |
+
+<Note>
+  Because the engine serializes and deserializes property values _after_ the constructor runs but _before_ `on_init()` is called, `on_init()` is the earliest point at which property values are guaranteed to be set. Always read `PROPERTY()` fields in `on_init()` rather than in the constructor.
+</Note>
+
+## File placement
+
+Place variant files in the designated game directories:
+
+```plaintext
+engine/
+├── include/
+│   └── game/       ← variant header files (.h)
+└── source/
+    └── game/       ← variant implementation files (.cpp)
+```
+
+The preparser scans these directories automatically. Files outside these directories will not be picked up by the editor.
+
+## Examples
+
+### Position variant
+
+A minimal data variant that stores a 2D position. Because it has no logic, it is a good candidate for `DataComponent`, though the example below uses `VariantBase` (which inherits `Component`) for simplicity.
+
+`engine/include/game/position.h`:
+
+```cpp
+#pragma once
+
+#include "variant/variant_base.h"
+
+class Position : public VariantBase {
+    VARIANT(Position)
+
+public:
+    Position(float x, float y) : x(x), y(y) {}
+
+    float x = 0; PROPERTY()
+    float y = 0; PROPERTY()
+};
+```
+
+### Speed variant
+
+A single-field variant that holds a scalar movement speed.
+
+`engine/include/game/speed.h`:
+
+```cpp
+#pragma once
+
+#include "variant/variant_base.h"
+
+class Speed : public VariantBase {
+    VARIANT(Speed);
+
+public:
+    float value; PROPERTY()
+};
+```
+
+### Cube variant with logic
+
+A full variant that owns rendering (`on_update`) and input handling (`on_play_update`). It queries `Position` and `Speed` from the same entity at runtime.
+
+`engine/include/game/cube.h`:
+
+```cpp
+#pragma once
+
+#include "variant/variant_base.h"
+#include "game/position.h"
+
+class Cube : public VariantBase {
+    VARIANT(Cube);
+
+public:
+    float width  = 50.0f; PROPERTY()
+    float height = 50.0f; PROPERTY()
+    Color color  = RED;   PROPERTY()  // Color is a Raylib struct — nesting is supported
+
+    void on_init() override;
+    void on_update() override;
+    void on_play_update() override;
+
+private:
+    void handle_input();
+};
+```
+
+`engine/source/game/cube.cpp`:
+
+```cpp
+#include "game/cube.h"
+#include "game/speed.h"
+#include "core/query.h"
+#include "core/raylib_wrapper.h"
+#include "remote_logger/remote_logger.h"
+
+void Cube::on_init() {
+    log_info("Cube is initialized");
+}
+
+void Cube::on_update() {
+    auto& position = Query::get<Position>(this);
+
+    draw_rectangle(
+        position.x - width / 2,
+        position.y - height / 2,
+        width,
+        height,
+        color);
+}
+
+void Cube::on_play_update() {
+    handle_input();
+}
+
+void Cube::handle_input() {
+    auto& position       = Query::get<Position>(this);
+    const auto& speed    = Query::read<Speed>(this);  // read-only access
+
+    float delta_time     = get_frame_time();
+    float movement_speed = speed.value;
+
+    if (is_key_down(KEY_LEFT) || is_key_down(KEY_A)) {
+        position.x -= movement_speed * delta_time;
+    }
+    if (is_key_down(KEY_RIGHT) || is_key_down(KEY_D)) {
+        position.x += movement_speed * delta_time;
+    }
+    if (is_key_down(KEY_UP) || is_key_down(KEY_W)) {
+        position.y -= movement_speed * delta_time;
+    }
+    if (is_key_down(KEY_DOWN) || is_key_down(KEY_S)) {
+        position.y += movement_speed * delta_time;
+    }
+}
+```
+
+## SET_CALLBACK
+
+Use `SET_CALLBACK` to run a method automatically whenever a property value changes — either through the editor or via the property update system at runtime.
+
+Declare it immediately after `PROPERTY()` on the same line:
+
+```cpp
+std::string path_to_sprite; PROPERTY() SET_CALLBACK(handle_new_path);
+```
+
+At compile time, `SET_CALLBACK(handle_new_path)` expands to a forward declaration of `void handle_new_path();`. You implement the method body in your class.
+
+Full example — a `Sprite` variant that reloads its texture whenever `path_to_sprite` changes:
+
+```cpp
+class Sprite : public VariantBase {
+    VARIANT(Sprite);
+
+public:
+    std::string path_to_sprite; PROPERTY() SET_CALLBACK(handle_new_path);
+
+    void on_init() override {
+        load_sprite_if_needed();
+    }
+
+    void handle_new_path() {
+        load_sprite_if_needed();
+        log_info("Sprite path changed to: {}", path_to_sprite);
+    }
+
+private:
+    void load_sprite_if_needed() {
+        if (!path_to_sprite.empty()) {
+            texture         = LoadTexture(path_to_sprite.c_str());
+            m_texture_loaded = true;
+        }
+    }
+
+    Texture texture;
+    bool    m_texture_loaded = false;
+};
+```
+
+<Tip>
+  `on_init()` and `handle_new_path()` both call `load_sprite_if_needed()`. This ensures the texture loads on startup (when the property is deserialized) and again whenever you change the path in the editor.
+</Tip>
+
+## REQUIRES
+
+Use `REQUIRES(...)` to declare that your variant depends on one or more other variants. The editor enforces these dependencies when you add the variant to an entity — the listed variants are added automatically if they are missing.
+
+```cpp
+class Cube : public VariantBase {
+    VARIANT(Cube);
+    REQUIRES(Position, Scale);
+
+public:
+    // ...
+};
+```
+
+`REQUIRES` is always parsed and enforced, regardless of whether `IGNORE_QUERIES()` is also present.
+
+## IGNORE_QUERIES
+
+By default, the editor parses your source files and detects every `Query::get<T>` and `Query::read<T>` call inside a variant's methods. It uses these as implicit dependencies — when you add that variant to an entity, the queried types are added automatically.
+
+To opt out of this behaviour for a specific variant, add `IGNORE_QUERIES()` to the class body:
+
+```cpp
+class Cube : public VariantBase {
+    VARIANT(Cube);
+    IGNORE_QUERIES();       // editor will not auto-detect query-based dependencies
+    REQUIRES(Position);     // you can still declare explicit requirements
+
+public:
+    // ...
+};
+```
+
+<Note>
+  `REQUIRES` and `IGNORE_QUERIES` both expand to nothing at compile time. They are preparser directives only.
+</Note>

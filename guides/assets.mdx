@@ -1,0 +1,136 @@
+---
+title: "Assets"
+description: "Load and reference textures and other assets in your variants"
+---
+
+All assets — textures, audio files, fonts, and any other static resources — live under `shared_resources/assets/`. The engine resolves paths relative to this directory using `ResourceManager`.
+
+## Asset directory layout
+
+```plaintext
+shared_resources/
+└── assets/
+    ├── sprites/
+    │   └── player.png
+    ├── audio/
+    │   └── jump.wav
+    └── fonts/
+        └── main.ttf
+```
+
+Organize subdirectories however makes sense for your project. `ResourceManager` does not impose any structure — it resolves any relative path you give it.
+
+## ResourceManager API
+
+`ResourceManager` is a singleton defined in `engine/source/resource_manager/resource_manager.cppm`. Access it with `ResourceManager::get()`.
+
+| Method | Return type | Description |
+|---|---|---|
+| `get_resources_path()` | `std::filesystem::path` | Base path to the `shared_resources/` directory. |
+| `get_asset_path(relative_path)` | `std::filesystem::path` | Resolves a relative path to an absolute path inside `shared_resources/assets/`. |
+| `get_entities_path()` | `std::filesystem::path` | Path to the entity files directory. |
+| `get_components_path()` | `std::filesystem::path` | Path to the `.component` files directory. |
+
+### Resolving an asset path
+
+```cpp
+#include "resource_manager/resource_manager.h"
+
+auto abs_path = ResourceManager::get().get_asset_path("sprites/player.png");
+// abs_path is now an absolute filesystem::path pointing to
+// <project>/shared_resources/assets/sprites/player.png
+```
+
+Pass the result to any Raylib function that takes a file path:
+
+```cpp
+Texture texture = LoadTexture(abs_path.string().c_str());
+```
+
+## Loading textures in a variant
+
+The recommended pattern is to store the relative path as a `PROPERTY()` field and load the texture in `on_init()`. Combine this with `SET_CALLBACK` so the texture reloads whenever you change the path in the editor.
+
+```cpp
+#include "variant/variant_base.h"
+#include "resource_manager/resource_manager.h"
+
+class Sprite : public VariantBase {
+    VARIANT(Sprite);
+
+public:
+    std::string path_to_sprite; PROPERTY() SET_CALLBACK(handle_new_path);
+
+    void on_init() override {
+        load_sprite_if_needed();
+    }
+
+    void handle_new_path() {
+        load_sprite_if_needed();
+        log_info() << "Sprite path changed to: " << path_to_sprite << std::endl;
+    }
+
+    void on_update() override {
+        if (m_texture_loaded) {
+            // draw at entity position, etc.
+        }
+    }
+
+private:
+    void load_sprite_if_needed() {
+        if (!path_to_sprite.empty()) {
+            auto abs_path    = ResourceManager::get().get_asset_path(path_to_sprite);
+            texture          = LoadTexture(abs_path.string().c_str());
+            m_texture_loaded = true;
+        }
+    }
+
+    Texture texture;
+    bool    m_texture_loaded = false;
+};
+```
+
+With this setup:
+
+- When the engine loads a design-time entity, it deserializes `path_to_sprite` from the scene file and then calls `on_init()`, which triggers `load_sprite_if_needed()`.
+- When you edit `path_to_sprite` in the editor at runtime, `handle_new_path()` fires and reloads the texture immediately.
+
+<Tip>
+  Store relative paths (e.g., `"sprites/player.png"`) in `PROPERTY()` fields rather than absolute paths. Relative paths work on any machine regardless of where the project is checked out, keeping your scenes portable.
+</Tip>
+
+## Supported asset formats
+
+Zeytin uses [Raylib](https://github.com/raysan5/raylib) for asset loading, so any format Raylib supports is available:
+
+<AccordionGroup>
+  <Accordion title="Images / textures">
+    PNG, BMP, TGA, JPG, GIF, PSD, HDR, PIC, PNM — loaded with `LoadTexture()` or `LoadImage()`.
+  </Accordion>
+  <Accordion title="Audio">
+    OGG, WAV, FLAC, MP3, QOA, XM, MOD — loaded with `LoadSound()` or `LoadMusicStream()`.
+  </Accordion>
+  <Accordion title="Fonts">
+    TTF, OTF, FNT (AngelCode bitmap font) — loaded with `LoadFont()` or `LoadFontEx()`.
+  </Accordion>
+  <Accordion title="3D models and meshes">
+    OBJ, IQM, GLTF, GLB, VOX — loaded with `LoadModel()`. Primarily for 3D use cases; Zeytin is a 2D engine but Raylib's 3D API is still available.
+  </Accordion>
+</AccordionGroup>
+
+## Accessing other resource paths
+
+If you need to reference entity or component files directly — for example, when implementing a custom loader — use the other `ResourceManager` methods:
+
+```cpp
+// Path to serialized entity files
+auto entities_path = ResourceManager::get().get_entities_path();
+
+// Path to .component files used by the editor
+auto components_path = ResourceManager::get().get_components_path();
+
+// Base shared_resources/ directory
+auto resources_root = ResourceManager::get().get_resources_path();
+```
+
+These paths are resolved at engine startup and remain stable for the lifetime of the process.

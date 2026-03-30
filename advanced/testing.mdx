@@ -1,0 +1,99 @@
+---
+title: "Automated testing"
+description: "Write and run automated smoke tests using ImGui Test Engine"
+---
+
+Zeytin uses [ImGui Test Engine](https://github.com/ocornut/imgui_test_engine) — the official testing framework for Dear ImGui — to automate interactions against the real editor UI. Tests drive the editor the same way a human would: clicking buttons, typing into input fields, and asserting that the expected UI state results.
+
+Because the tests run against the live editor, they are integration tests. They catch regressions that unit tests cannot, such as a broken entity-creation flow or a variant panel that stops rendering correctly after a refactor.
+
+## TestManager
+
+All tests are registered and managed by the `TestManager` class. `TestManager` owns the `ImGuiTestEngine*` instance and registers each test during initialisation. You do not need to call the test engine APIs directly — you interact with it through `IM_REGISTER_TEST`.
+
+## Registering a test
+
+Use the `IM_REGISTER_TEST` macro to declare a test. It takes the test engine pointer, a **group** name, and a **test** name:
+
+```cpp
+ImGuiTest* my_test = IM_REGISTER_TEST(m_test_engine, "Group", "Test Name");
+my_test->TestFunc = [](ImGuiTestContext* ctx) {
+    // test body
+};
+```
+
+The group name should match the editor panel the test exercises — for example `"Hierarchy"`, `"AssetBrowser"`, or `"Inspector"`. This keeps the test list readable as it grows.
+
+## ImGui Test Engine API
+
+| Function | What it does |
+|---|---|
+| `ctx->SetRef(window_name)` | Sets the reference window for all subsequent item lookups |
+| `ctx->ItemClick(item_id)` | Simulates a mouse click on a UI item |
+| `ctx->KeyCharsAppend(text)` | Types text into the currently focused input field |
+| `ctx->ItemExists(path)` | Returns `true` if the item at the given path exists in the UI |
+| `IM_CHECK(condition)` | Asserts that `condition` is true; fails the test if not |
+
+`item_id` can be an ImGui label string (e.g., `"+ Create New Entity"`), a widget ID such as `"##EntityName"`, or a path using `**/` as a wildcard to search recursively (e.g., `"**/TestEntity"`).
+
+## Example test
+
+The test below is used internally to verify that the entity creation flow works end to end. It opens the **Hierarchy** panel, creates an entity named `TestEntity`, and then asserts that the entity appears in the hierarchy list.
+
+```cpp
+ImGuiTest* hierarchy_create_entity = IM_REGISTER_TEST(m_test_engine, "Hierarchy", "Create Entity");
+hierarchy_create_entity->TestFunc = [](ImGuiTestContext* ctx) {
+    ctx->SetRef("Hierarchy");
+    ctx->ItemClick("+ Create New Entity");
+
+    ctx->SetRef("New Entity");
+    ctx->ItemClick("##EntityName");
+    ctx->KeyCharsAppend("TestEntity");
+    ctx->ItemClick("Create");
+
+    ctx->SetRef("Hierarchy");
+    bool item_exists = ctx->ItemExists("**/TestEntity");
+    IM_CHECK(item_exists);
+};
+```
+
+**What each line does:**
+
+1. `SetRef("Hierarchy")` — all subsequent `ItemClick` calls look inside the **Hierarchy** window.
+2. `ItemClick("+ Create New Entity")` — clicks the create button, opening the **New Entity** dialog.
+3. `SetRef("New Entity")` — switch context to the dialog window.
+4. `ItemClick("##EntityName")` — focuses the name input field (identified by its internal widget ID).
+5. `KeyCharsAppend("TestEntity")` — types the entity name into the focused field.
+6. `ItemClick("Create")` — confirms the dialog.
+7. `SetRef("Hierarchy")` — switch context back to the hierarchy.
+8. `ItemExists("**/TestEntity")` — searches the hierarchy recursively for an item named `TestEntity`.
+9. `IM_CHECK(item_exists)` — fails the test if the entity is not found.
+
+## Use cases
+
+<AccordionGroup>
+  <Accordion title="Regression testing after editor changes">
+    Run the full test suite after modifying editor code to confirm that existing flows — entity creation, variant attachment, play mode toggle — still work correctly.
+  </Accordion>
+  <Accordion title="Validating entity and variant workflows">
+    Write tests that add a variant to an entity and then assert that the inspector panel shows the correct property fields. This is useful when adding new variant types or changing property layouts.
+  </Accordion>
+  <Accordion title="Automating repetitive setup">
+    Use tests to script scene setup tasks that would otherwise require many manual clicks, such as creating a batch of entities with specific variants for a stress test.
+  </Accordion>
+</AccordionGroup>
+
+## Organising tests
+
+Prefix each test group to match the editor panel it targets. This makes it easy to find failing tests when a specific panel has a regression:
+
+| Group name | Panel it covers |
+|---|---|
+| `"Hierarchy"` | Entity list and creation dialog |
+| `"AssetBrowser"` | File browser panel |
+| `"Inspector"` | Variant property editor |
+| `"Console"` | Log output panel |
+
+<Tip>
+  Keep each test focused on a single user action and one assertion. Narrow tests are easier to debug when they fail and are less likely to break due to unrelated UI changes.
+</Tip>

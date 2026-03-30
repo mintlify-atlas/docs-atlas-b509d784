@@ -1,0 +1,94 @@
+---
+title: "Hierarchy panel"
+description: "Manage entities and variants in the Hierarchy panel"
+---
+
+The hierarchy panel occupies the left side of the editor. It lists every design-time entity in the current scene, showing each entity's name and a prefix indicator: `O` for alive entities and `X` for dead (removed) ones. Clicking an entity selects it and opens it in the inspector, where you can view and edit its variant property values.
+
+## Design-time vs. runtime entities
+
+Entities in Zeytin fall into two categories:
+
+- **Design-time entities** — created in the editor and serialised to `.entity` files inside `shared_resources/levels/`. When the engine starts, it reads the scene file and constructs these entities automatically.
+- **Runtime entities** — created while the game is running using `Query::create_entity()` in your variant code. They exist only for the lifetime of the engine session and are never written to disk by the editor.
+
+The hierarchy panel shows only design-time entities. Runtime entities created by game code are invisible to the editor's hierarchy.
+
+## Creating an entity
+
+<Steps>
+  <Step title="Open the creation dialog">
+    Click **+ Create New Entity** at the top of the hierarchy panel. A modal dialog opens prompting you for a name.
+  </Step>
+  <Step title="Enter a name">
+    Type a name in the input field. Press **Enter** or click **Create** to confirm. Entity names must be unique within the scene. Characters that are invalid in file paths — `/`, `\`, `:`, `*`, `?`, `"`, `<`, `>`, `|` — are stripped automatically.
+  </Step>
+  <Step title="Confirm the entity appears">
+    The new entity appears in the hierarchy list with an `O` prefix indicating it is alive. Click it to select it.
+  </Step>
+</Steps>
+
+## Adding a variant to an entity
+
+Right-click any entity in the hierarchy to open its context menu. The menu lists all available variant types loaded from `shared_resources/variants/`. Select a variant type to attach it to the entity. The editor also notifies the running engine (if active) over ZeroMQ so the variant is added to the live entity without a restart.
+
+## Auto-dependency detection
+
+When you add a variant, the editor inspects that variant's `.component` file for `Query::get` and `Query::read` calls. Any variant types referenced in those calls are automatically added to the same entity alongside the one you selected.
+
+For example, given this `Cube` variant:
+
+```cpp
+void Cube::on_update() {
+    auto& position = Query::get<Position>(this);
+    const auto& speed = Query::read<Speed>(this);
+    // ...
+}
+```
+
+Adding `Cube` to an entity will also add `Position` and `Speed` automatically, because the editor parses those `Query` calls from the source.
+
+<Tip>
+  Auto-dependency detection prevents the most common setup error: forgetting to attach a variant that another variant queries at runtime. Without the queried variant present, the engine would fail at startup when it tries to look it up.
+</Tip>
+
+### Overriding dependency detection
+
+Two macros in your variant class definition let you control this behaviour:
+
+**`IGNORE_QUERIES()`** — tells the editor to skip query-based dependency detection for this variant. No variants will be auto-added based on `Query` calls when this variant is attached.
+
+**`REQUIRES(...)`** — explicitly declares which variants must be present on the same entity. The editor reads this list and enforces it regardless of whether `IGNORE_QUERIES()` is present.
+
+```cpp
+class Cube : public VariantBase {
+    VARIANT(Cube);
+    IGNORE_QUERIES();           // skip auto-detection from Query calls
+    REQUIRES(Position, Scale);  // still require these two explicitly
+
+public:
+    float width = 50.0f; PROPERTY()
+    float height = 50.0f; PROPERTY()
+    Color color = RED; PROPERTY()
+
+    void on_update() override;
+    void on_play_update() override;
+};
+```
+
+Both macros expand to nothing at compile time. They exist only as markers for the editor's pre-parser. You can use `REQUIRES()` without `IGNORE_QUERIES()` — in that case the explicitly required variants are added on top of anything the query parser detects.
+
+## Removing a variant
+
+Right-click the entity and select **Remove Variant**, then choose the variant type to remove. The editor removes it from the entity's JSON document and notifies the engine if it is running.
+
+## Deleting an entity
+
+Right-click the entity in the hierarchy and select **Delete**. The entity is marked dead and removed from the scene. The deletion can be undone with **Ctrl+Z** before you save.
+
+## Saving
+
+The hierarchy panel provides two save controls:
+
+- **Save All** — immediately writes all entity data to disk as `.entity` files in `shared_resources/levels/`.
+- **Auto-save** checkbox — when enabled, the editor automatically saves all entities every 15 seconds. Auto-save is on by default.

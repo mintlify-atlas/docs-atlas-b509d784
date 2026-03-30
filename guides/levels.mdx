@@ -1,0 +1,107 @@
+---
+title: "Levels"
+description: "Organize your game into levels and switch between them at runtime"
+---
+
+A level in Zeytin is a named folder under `shared_resources/levels/`. Each folder contains the serialized scene files for that level — the entity definitions and their variant property values. The engine reads these files on startup and reconstructs the scene.
+
+## Level directory structure
+
+```plaintext
+shared_resources/
+└── levels/
+    ├── Level1/
+    ├── Level2/
+    └── TestLevel/
+```
+
+Each subdirectory name becomes the level's name as far as the engine and `LevelManager` API are concerned. To create a new level, create a new folder under `shared_resources/levels/` and populate it with scene data from the editor.
+
+<Tip>
+  Use descriptive names that match your game's progression or scene purpose — for example, `MainMenu`, `World1_Forest`, or `BossArena` — rather than generic numbered names. This makes `switch_to_level` calls in code easier to read and maintain.
+</Tip>
+
+## The Level struct
+
+`LevelManager` works with `Level` structs defined in `engine/source/level/level_manager.cppm`:
+
+```cpp
+struct Level {
+    std::string name;
+    std::filesystem::path path;
+
+    bool is_valid() const;  // true if name is non-empty and path exists on disk
+};
+```
+
+## LevelManager API
+
+`LevelManager` provides static methods for querying and loading levels:
+
+| Method | Return type | Description |
+|---|---|---|
+| `LevelManager::get_all_levels()` | `std::vector<Level>` | Returns all levels found under the levels directory. |
+| `LevelManager::get_level(name)` | `Level` | Returns the `Level` struct for the named level. |
+| `LevelManager::load_level(name)` | `std::string` | Loads the level and returns its scene JSON as a string. |
+| `LevelManager::load_level(level)` | `std::string` | Overload that accepts a `Level` struct directly. |
+
+### Listing all levels
+
+```cpp
+#include "level/level_manager.h"
+
+auto levels = LevelManager::get_all_levels();
+for (const auto& level : levels) {
+    if (level.is_valid()) {
+        log_info() << "Found level: " << level.name << std::endl;
+    }
+}
+```
+
+### Loading a level by name
+
+```cpp
+std::string scene_json = LevelManager::load_level("Level1");
+```
+
+This returns the raw JSON string for the scene. You can pass it directly to `Zeytin::get().deserialize_scene(json)` if you want to load it yourself, or use `switch_to_level` to let the engine handle the transition.
+
+## Switching levels at runtime
+
+To transition to a different level while the game is running, call:
+
+```cpp
+Zeytin::get().switch_to_level("Level2");
+```
+
+<Note>
+  Level switching is **deferred**. The engine does not unload the current scene immediately. Instead, it loads the new level at the start of the next frame. This ensures that all current-frame update methods finish cleanly before the scene changes.
+</Note>
+
+## Reloading the current scene
+
+To reset the current scene to its last saved state:
+
+```cpp
+Zeytin::get().reload_scene();
+```
+
+This is equivalent to switching to the current level again. All runtime changes — entities created with `Query::create_entity()`, modified property values in play mode — are discarded, and the scene is reconstructed from disk.
+
+## Scene serialization and deserialization
+
+You can serialize and deserialize the scene manually if you need to implement save states or custom level transitions:
+
+```cpp
+// Capture the current scene as a JSON string
+std::string json = Zeytin::get().serialize_scene();
+
+// Restore a previously captured scene
+Zeytin::get().deserialize_scene(json);
+```
+
+`serialize_scene()` captures all entities and their `PROPERTY()` field values at the moment of the call. `deserialize_scene()` replaces the current scene with whatever is in the JSON string.
+
+<Warning>
+  Calling `deserialize_scene()` destroys all current entities immediately. Make sure you do not hold any dangling `EntityID` values or variant references across a deserialization call.
+</Warning>

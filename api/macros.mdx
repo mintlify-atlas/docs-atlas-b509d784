@@ -1,0 +1,178 @@
+---
+title: "Macros reference"
+description: "All macros available for defining variants and properties"
+---
+
+Zeytin ships four macros for declaring variants and their properties. All of them are defined in `engine/include/variant/variant_macros.h`:
+
+```cpp
+#define PROPERTY()
+#define IGNORE_QUERIES()
+#define REQUIRES(...)
+
+#define SET_CALLBACK(callback_name) \
+    void callback_name();
+```
+
+<Note>
+  These macros expand to nothing (or a single forward declaration) at compile time. Their purpose is to act as markers for the Zeytin **preparser**, which scans your source files before compilation to generate the editor's property panels, dependency graphs, and RTTR registration boilerplate. Adding or removing a macro has zero runtime cost.
+</Note>
+
+---
+
+## VARIANT
+
+**Usage:** place as the first declaration inside the class body, immediately after the opening brace.
+
+**Effect:** signals to the preparser that this class is a variant and triggers generation of the RTTR type registration boilerplate the engine needs to reflect, serialize, and deserialize the class.
+
+Every class that inherits from `VariantBase` (or directly from `Component`) must include `VARIANT(TypeName)`. Without it, the engine cannot register the class and the editor will not recognize the variant.
+
+```cpp
+#pragma once
+#include "variant/variant_base.h"
+
+class Position : public VariantBase {
+    VARIANT(Position)   // required — must be first
+
+public:
+    float x = 0; PROPERTY()
+    float y = 0; PROPERTY()
+};
+```
+
+---
+
+## PROPERTY
+
+**Usage:** place immediately after a field declaration on the same line.
+
+**Effect:** marks the field as serializable and editable in the editor. The preparser reads `PROPERTY()` annotations to include the field in the RTTR registration output, which makes the field visible in the editor's property panel and included in scene serialization.
+
+```cpp
+class Speed : public VariantBase {
+    VARIANT(Speed);
+
+public:
+    float value = 100.0f; PROPERTY()
+};
+```
+
+Nested struct types are supported. Raylib's `Color` struct, for example, works correctly:
+
+```cpp
+Color color = RED; PROPERTY()
+```
+
+<Tip>
+  `PROPERTY()` expands to nothing at compile time — it is a preparser directive only. There is no performance impact from marking a field as a property, and the preparser will only expose fields you explicitly mark.
+</Tip>
+
+---
+
+## SET_CALLBACK
+
+**Usage:** place after `PROPERTY()` on the same line as a field declaration.
+
+**Effect:** at compile time, `SET_CALLBACK(callback_name)` expands to a forward declaration `void callback_name();`. The engine calls this method whenever the property value changes — either through the editor's property panel at runtime or via the property update system.
+
+You must implement the callback method in the variant's `.cpp` file.
+
+```cpp
+std::string path_to_sprite; PROPERTY() SET_CALLBACK(handle_new_path);
+```
+
+Full example — a `Sprite` variant that reloads its texture whenever `path_to_sprite` changes:
+
+```cpp
+// sprite.h
+class Sprite : public VariantBase {
+    VARIANT(Sprite);
+
+public:
+    std::string path_to_sprite; PROPERTY() SET_CALLBACK(handle_new_path);
+
+    void on_init() override;
+    void handle_new_path();
+
+private:
+    void load_sprite_if_needed();
+
+    Texture texture;
+    bool    m_texture_loaded = false;
+};
+```
+
+```cpp
+// sprite.cpp
+#include "game/sprite.h"
+#include "remote_logger/remote_logger.h"
+
+void Sprite::on_init() {
+    // on_init fires after properties are deserialized — load the texture on startup
+    load_sprite_if_needed();
+}
+
+void Sprite::handle_new_path() {
+    // called whenever path_to_sprite changes via the editor or property update system
+    load_sprite_if_needed();
+    log_info("Sprite path changed to: {}", path_to_sprite);
+}
+
+void Sprite::load_sprite_if_needed() {
+    if (!path_to_sprite.empty()) {
+        texture          = LoadTexture(path_to_sprite.c_str());
+        m_texture_loaded = true;
+    }
+}
+```
+
+<Tip>
+  Both `on_init()` and the callback call `load_sprite_if_needed()`. This ensures the texture loads correctly on startup (when the serialized path is restored) **and** again any time you change the path in the editor during a running session.
+</Tip>
+
+---
+
+## REQUIRES
+
+**Usage:** place inside the class body (after `VARIANT`, typically on the next line).
+
+**Effect:** declares that this variant depends on one or more other variant types. The editor enforces these dependencies — when you add the variant to an entity, the listed types are automatically added if they are missing. Attempting to add the variant to an entity that cannot satisfy these requirements shows an error in the editor.
+
+```cpp
+class Cube : public VariantBase {
+    VARIANT(Cube);
+    REQUIRES(Position, Scale);
+
+public:
+    float width  = 50.0f; PROPERTY()
+    float height = 50.0f; PROPERTY()
+};
+```
+
+`REQUIRES` is always parsed and enforced regardless of whether `IGNORE_QUERIES()` is also present. Use it to make dependencies explicit and to guarantee the entity structure your variant expects.
+
+---
+
+## IGNORE_QUERIES
+
+**Usage:** place inside the class body.
+
+**Effect:** disables the editor's automatic query-based dependency detection for this variant. By default, the preparser scans your variant's `.cpp` implementation and detects every `Query::get<T>` and `Query::read<T>` call, then uses those types as implicit dependencies. Adding `IGNORE_QUERIES()` opts the variant out of this scan entirely.
+
+```cpp
+class Cube : public VariantBase {
+    VARIANT(Cube);
+    IGNORE_QUERIES();       // editor skips automatic dependency detection
+    REQUIRES(Position);     // you can still declare explicit requirements
+
+public:
+    float width = 50.0f; PROPERTY()
+};
+```
+
+Use `IGNORE_QUERIES()` when your variant conditionally queries types at runtime that should not always be required, or when the automatic detection would produce false dependencies that break the editor's entity validation.
+
+<Note>
+  `REQUIRES` and `IGNORE_QUERIES` both expand to nothing at compile time. They are preparser directives only and have no effect on the compiled binary.
+</Note>

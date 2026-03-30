@@ -1,0 +1,146 @@
+---
+title: "Installation"
+description: "Install Zeytin on Windows or Linux"
+---
+
+## Prerequisites
+
+<Tabs>
+  <Tab title="Windows">
+    - **MinGW-w64** with GCC 14.2.0 or later — the Premake build script uses the `gcc` toolset
+    - **Premake5** — available at [premake.github.io](https://premake.github.io/)
+    - **Git**
+
+    <Warning>
+      Make sure the MinGW `bin` directory is on your `PATH` environment variable before running any build commands. Verify the compiler version with `gcc --version`.
+    </Warning>
+  </Tab>
+  <Tab title="Linux">
+    - **Clang 14.0.0 or later** — the Premake build script uses the `clang` toolset
+    - **Premake5** — available at [premake.github.io](https://premake.github.io/)
+    - **Git**
+
+    Install required system development libraries:
+
+    ```bash
+    sudo apt-get install libx11-dev libxcursor-dev libxrandr-dev libxinerama-dev libxi-dev libgl1-mesa-dev libglu1-mesa-dev libasound2-dev libpulse-dev libdw-dev libbfd-dev libdwarf-dev libzmq3-dev
+    ```
+  </Tab>
+</Tabs>
+
+<Note>
+  All other dependencies — Raylib, RTTR, ImGui, RapidJSON, ZeroMQ bindings, Tracy, rlImGui, and Backward-cpp — are bundled in the repository under `editor/3rdparty/` and `engine/3rdparty/`. You do not need to install them separately. The build scripts use these local versions.
+</Note>
+
+## Build steps
+
+<Steps>
+  <Step title="Clone the repository">
+    ```bash
+    git clone https://github.com/berkaysahiin/Zeytin.git
+    cd Zeytin
+    ```
+  </Step>
+
+  <Step title="Build the editor">
+    ```bash
+    cd editor
+    premake5 gmake
+    cd build
+    make
+    ```
+
+    The editor binary is placed at `editor/bin/Debug/ZeytinEditor`.
+  </Step>
+
+  <Step title="Run the editor">
+    From the `editor/` directory:
+
+    ```bash
+    ./bin/Debug/ZeytinEditor
+    ```
+
+    The editor window opens. From here you can design entities, launch the engine, and edit properties live.
+  </Step>
+
+  <Step title="Build the engine in editor mode">
+    In a separate terminal, from the repository root:
+
+    ```bash
+    cd engine
+    premake5 gmake
+    cd build
+    make config=EDITOR_MODE
+    ```
+
+    This produces `engine/bin/EDITOR_MODE/Zeytin`, which the editor launches automatically when you click **Start Engine**.
+  </Step>
+
+  <Step title="Build the engine in standalone mode">
+    To produce a self-contained executable for distribution (no editor required):
+
+    ```bash
+    cd engine
+    premake5 gmake
+    cd build
+    make config=STANDALONE
+    ```
+
+    The standalone binary is placed at `engine/bin/STANDALONE/Zeytin`. Run it directly:
+
+    ```bash
+    ./bin/STANDALONE/Zeytin
+    ```
+  </Step>
+</Steps>
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Windows: DLL error when launching the editor">
+    If you see a missing DLL error on startup, `libzmq-mt-4_3_5.dll` is not in the expected location.
+
+    The Premake build script copies the DLL to the target directory automatically during the build via a post-build command. If the copy did not run, copy it manually:
+
+    ```bash
+    cp engine/3rdparty/zmq/windows/libzmq-mt-4_3_5.dll editor/bin/Debug/
+    ```
+
+    Make sure the DLL is in the same directory as `ZeytinEditor.exe`.
+  </Accordion>
+
+  <Accordion title="Windows: Compiler not found or wrong version">
+    Premake uses the `gcc` toolset on Windows. If the build fails with a compiler error:
+
+    1. Confirm MinGW-w64 is installed: `gcc --version`
+    2. Verify the MinGW `bin` directory (e.g., `C:\mingw64\bin`) is listed in your `PATH`.
+    3. Open a new terminal after updating `PATH` — changes are not picked up by already-open sessions.
+    4. Zeytin is tested against GCC 14.2.0. Earlier versions may fail to compile the C++17 code.
+  </Accordion>
+
+  <Accordion title="Linux: Missing library errors at build or link time">
+    If the build fails with errors like `cannot find -lX11` or `fatal error: zmq.h: No such file or directory`, one or more system packages are missing.
+
+    Re-run the full apt-get install command from the prerequisites section and then rebuild:
+
+    ```bash
+    sudo apt-get install libx11-dev libxcursor-dev libxrandr-dev libxinerama-dev libxi-dev libgl1-mesa-dev libglu1-mesa-dev libasound2-dev libpulse-dev libdw-dev libbfd-dev libdwarf-dev libzmq3-dev
+    ```
+  </Accordion>
+
+  <Accordion title="Linux: ZMQ-related errors at runtime">
+    If the editor or engine crashes or fails to connect with ZMQ errors, verify that `libzmq3-dev` was installed correctly:
+
+    ```bash
+    dpkg -l libzmq3-dev
+    ```
+
+    If it shows as not installed, install it and rebuild both the editor and engine:
+
+    ```bash
+    sudo apt-get install libzmq3-dev
+    cd editor && premake5 gmake && cd build && make
+    cd ../../engine && premake5 gmake && cd build && make config=EDITOR_MODE
+    ```
+  </Accordion>
+</AccordionGroup>
